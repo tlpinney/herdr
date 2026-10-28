@@ -1355,11 +1355,28 @@ impl HeadlessServer {
         let Some(runtime) = self.runtime_for_terminal_id_string(terminal_id) else {
             return false;
         };
+        // As for panes in a client shell, the program's redraw acknowledges
+        // each wheel row of a smooth scroll region; render it promptly.
+        let smooth_wheel =
+            matches!(source, AttachScrollSource::Wheel) && runtime.smooth_regions_revision() != 0;
 
         if let Err(err) =
             apply_terminal_attach_scroll(runtime, source, direction, lines, column, row, modifiers)
         {
             warn!(client_id, terminal_id = %terminal_id, err = %err, "terminal attach scroll failed");
+        }
+        if smooth_wheel {
+            let pane_id = self.app.state.workspaces.iter().find_map(|workspace| {
+                workspace.tabs.iter().find_map(|tab| {
+                    tab.panes.iter().find_map(|(&pane_id, pane)| {
+                        (pane.attached_terminal_id.as_str() == terminal_id.as_str())
+                            .then_some(pane_id)
+                    })
+                })
+            });
+            if let Some(pane_id) = pane_id {
+                self.note_interactive_input(pane_id, Instant::now());
+            }
         }
         true
     }
