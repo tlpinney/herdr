@@ -2447,7 +2447,20 @@ impl HeadlessServer {
                     &mut keyboard_forwarded,
                 );
                 let scroll_changed = runtime.scroll_metrics() != scroll_before;
-                if keyboard_forwarded {
+                // A smooth scroll region waits on the program's redraw to
+                // acknowledge each wheel row; render that redraw promptly too.
+                let smooth_wheel = runtime.smooth_regions_revision() != 0
+                    && events.iter().any(|event| {
+                        matches!(
+                            event,
+                            protocol::ClientPaneInputEvent::Mouse {
+                                kind: protocol::ClientMouseKind::ScrollUp
+                                    | protocol::ClientMouseKind::ScrollDown,
+                                ..
+                            }
+                        )
+                    });
+                if keyboard_forwarded || smooth_wheel {
                     self.note_interactive_input(runtime_pane_id, Instant::now());
                 }
                 if let Err(err) = input_result {

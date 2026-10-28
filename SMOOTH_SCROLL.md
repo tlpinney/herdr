@@ -45,5 +45,6 @@ the disclosure lives here instead.
 - Panes with declared regions skip the retained row-patch path and render
   complete surfaces, which costs more while they scroll.
 - Popup panes are not relayed.
-- Only one overscan row exists, so herdr's round trip and its ~60 fps
-  render cap can make fast flicks pause briefly at a row boundary.
+- Only one overscan row exists, so a slow round trip can make very fast
+  flicks pause briefly at a row boundary. Wheel input to panes with regions
+  uses herdr's interactive render budget (like typing) to keep that short.
