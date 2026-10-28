@@ -173,6 +173,10 @@ pub fn translate(
     })
 }
 
+/// Region id herdr uses for a pane's own scrollback, above any id a program
+/// can declare.
+pub const SCROLLBACK_REGION_ID: u32 = 1000;
+
 /// Endpoint control kind of the region companion message.
 pub const CONTROL_KIND: &str = "herdr.smooth_regions.v1";
 

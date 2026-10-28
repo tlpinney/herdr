@@ -39,12 +39,24 @@ the disclosure lives here instead.
 4. **Input** needs no change: with mouse reporting on, herdr already
    forwards each host wheel event to the program as exactly one wheel
    event.
+5. **herdr's own scrollback.** While a pane whose wheel scrolls herdr's
+   scrollback (a shell, for example) is scrolled back, herdr declares a
+   region of its own over the pane's content area (id 1000, above any id a
+   program can use): `pos` is the first visible line counted from the top of
+   the history and `max` the bottom. The pane's last row is the overscan
+   row and already holds the next line, so nothing renders differently.
+   Over such a pane the client sends one row per wheel event instead of
+   `mouse_scroll_lines`, since the host terminal sends one event per row.
 
 ## Limitations
 
 - Panes with declared regions skip the retained row-patch path and render
   complete surfaces, which costs more while they scroll.
 - Popup panes are not relayed.
+- herdr's scrollback has no region at the bottom of the history, where the
+  hidden overscan row would be the prompt, so the first notch up from the
+  bottom moves a whole row (by `mouse_scroll_lines`) before scrolling turns
+  smooth. While scrolled back, the pane's last row stays hidden.
 - Only one overscan row exists, so a slow round trip can make very fast
   flicks pause briefly at a row boundary. Wheel input to panes with regions
   uses herdr's interactive render budget (like typing) to keep that short.

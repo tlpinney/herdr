@@ -346,6 +346,13 @@ impl HeadlessServer {
             if runtime.smooth_regions_revision() != 0 && runtime.smooth_regions().is_some() {
                 fallback!("smooth_regions");
             }
+            // A pane scrolled back into herdr's scrollback declares a region.
+            if runtime
+                .scroll_metrics()
+                .is_some_and(|metrics| metrics.offset_from_bottom > 0)
+            {
+                fallback!("smooth_regions");
+            }
             let Some(snapshot) = runtime.collect_dirty_patch_snapshot(width, height) else {
                 fallback!("terminal_snapshot");
             };

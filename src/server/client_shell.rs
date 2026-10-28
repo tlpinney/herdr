@@ -336,6 +336,41 @@ fn popup_geometry(
     }
 }
 
+/// herdr's own scrollback as a smooth region over the pane's content area,
+/// while the pane is scrolled back and the wheel scrolls herdr's scrollback:
+/// `pos` is the first visible line counted from the top of the history and
+/// `max` the bottom. The pane's last row is the overscan row; it already
+/// holds the next line, so nothing renders differently. At the bottom there
+/// is no region, since the hidden overscan row would be the prompt.
+pub(super) fn scrollback_region(
+    runtime: &crate::terminal::TerminalRuntime,
+    area: Rect,
+) -> Option<(crate::smooth_scroll::CellRect, u32, u32)> {
+    if !matches!(
+        runtime.wheel_routing(),
+        Some(crate::pane::WheelRouting::HostScroll) | None
+    ) {
+        return None;
+    }
+    let metrics = runtime.scroll_metrics()?;
+    if metrics.offset_from_bottom == 0 || area.height < 2 || area.width == 0 {
+        return None;
+    }
+    let max = metrics.max_offset_from_bottom;
+    let pos = max - metrics.offset_from_bottom.min(max);
+    let rect = crate::smooth_scroll::CellRect {
+        top: area.y,
+        bottom: area.y + area.height - 1,
+        left: area.x,
+        right: area.x + area.width - 1,
+    };
+    Some((
+        rect,
+        u32::try_from(pos).ok()?,
+        u32::try_from(max).ok()?,
+    ))
+}
+
 /// Smooth scroll regions declared by visible panes, translated into
 /// pane-surface cells. Panes scrolled back into herdr's own scrollback show
 /// history, not the program's live region, so they contribute none.
@@ -353,6 +388,18 @@ pub(super) fn collect_smooth_regions(
         ) else {
             continue;
         };
+        if let Some(pane_id) = app.public_pane_id(workspace_index, pane.id) {
+            if let Some((rect, pos, max)) = scrollback_region(runtime, pane.inner_rect) {
+                regions.push(crate::smooth_scroll::SurfaceRegion {
+                    pane_id,
+                    id: crate::smooth_scroll::SCROLLBACK_REGION_ID,
+                    rect,
+                    pos,
+                    max,
+                });
+                continue;
+            }
+        }
         // Revision 0 means the program never declared a region.
         if runtime.smooth_regions_revision() == 0 {
             continue;

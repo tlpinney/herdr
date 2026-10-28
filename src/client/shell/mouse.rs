@@ -2394,9 +2394,22 @@ impl ClientShellState {
                 position,
                 geometry,
                 modifiers: modifiers.bits(),
-                lines: self.config.mouse_scroll_lines.min(u16::MAX as usize) as u16,
+                lines: self.wheel_lines(&hit.pane_id),
             },
             outcome,
         );
+    }
+
+    /// Rows per wheel event: one over a pane whose scrollback is a smooth
+    /// region, since the host terminal then sends one event per row.
+    fn wheel_lines(&self, pane_id: &str) -> u16 {
+        let smooth = self.smooth_regions.iter().any(|region| {
+            region.pane_id == pane_id && region.id == crate::smooth_scroll::SCROLLBACK_REGION_ID
+        });
+        if smooth {
+            1
+        } else {
+            self.config.mouse_scroll_lines.min(u16::MAX as usize) as u16
+        }
     }
 }
