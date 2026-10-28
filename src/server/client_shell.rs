@@ -441,6 +441,12 @@ pub(super) fn terminal_smooth_regions(
     width: u16,
     height: u16,
 ) -> Vec<(String, u32, crate::smooth_scroll::HostRegion)> {
+    // A pane scrolled back into herdr's scrollback shows history, so its own
+    // scrollback region replaces anything the program declared.
+    if let Some((rect, pos, max)) = scrollback_region(runtime, Rect::new(0, 0, width, height)) {
+        let host = crate::smooth_scroll::HostRegion { rect, pos, max };
+        return vec![(String::new(), crate::smooth_scroll::SCROLLBACK_REGION_ID, host)];
+    }
     // Revision 0 means the program never declared a region.
     if runtime.smooth_regions_revision() == 0 {
         return Vec::new();
