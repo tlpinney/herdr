@@ -1558,6 +1558,11 @@ async fn run_client_loop(
                     }
                     ServerMessage::PaneSurfacePatch(patch) => {
                         let patch_started = crate::render_prof::timer();
+                        // Changed smooth regions are declared by a composed frame.
+                        let smooth_regions_dirty = state
+                            .shell
+                            .as_ref()
+                            .is_some_and(shell::ClientShellState::smooth_regions_dirty);
                         let apply_started = crate::render_prof::timer();
                         let outcome = state
                             .shell
@@ -1568,6 +1573,11 @@ async fn run_client_loop(
                             apply_started,
                         );
                         let compose_fallback = match outcome {
+                            Some(shell::ClientPaneSurfacePatchOutcome::Applied(Some(_)))
+                                if smooth_regions_dirty =>
+                            {
+                                true
+                            }
                             Some(shell::ClientPaneSurfacePatchOutcome::Applied(Some(patch))) => {
                                 match state.present_surface_patch(patch) {
                                     Ok(presented) => !presented,
@@ -2110,6 +2120,14 @@ async fn run_client_loop(
                                         generation,
                                         projection,
                                     );
+                                }
+                                continue;
+                            }
+                            Ok(endpoint::EndpointControlMessage::SmoothRegions(regions)) => {
+                                if endpoint_active {
+                                    if let Some(shell) = state.shell.as_mut() {
+                                        shell.set_smooth_regions(regions);
+                                    }
                                 }
                                 continue;
                             }

@@ -299,6 +299,11 @@ impl HeadlessServer {
             if has_synchronized_pane(&self.app, surface) {
                 fallback!("synchronized_visible");
             }
+            // Row patches cannot carry region changes; the complete renderer
+            // sends them atomically with the cells.
+            if !client.shell_smooth_regions.is_empty() {
+                fallback!("smooth_regions");
+            }
             recipients.push(RetainedRecipient {
                 client_id: *client_id,
                 surface,
@@ -338,6 +343,9 @@ impl HeadlessServer {
             ) else {
                 fallback!("runtime_missing");
             };
+            if runtime.smooth_regions_revision() != 0 && runtime.smooth_regions().is_some() {
+                fallback!("smooth_regions");
+            }
             let Some(snapshot) = runtime.collect_dirty_patch_snapshot(width, height) else {
                 fallback!("terminal_snapshot");
             };

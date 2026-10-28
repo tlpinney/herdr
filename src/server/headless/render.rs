@@ -735,6 +735,7 @@ impl HeadlessServer {
                 }
             }
             let mut surface_parts = None;
+            let mut smooth_regions = None;
             let frame = match mode {
                 ClientConnectionMode::ClientShell => {
                     let crate::server::client_shell::RenderedPaneSurface {
@@ -745,7 +746,9 @@ impl HeadlessServer {
                         graphics,
                         graphics_delivery: next_graphics_delivery,
                         graphics_sources,
+                        smooth_regions: rendered_smooth_regions,
                     } = shell_render.expect("active shell surface");
+                    smooth_regions = Some(rendered_smooth_regions);
                     surface_parts = Some((
                         panes,
                         splits,
@@ -960,6 +963,34 @@ impl HeadlessServer {
                 };
                 serialized.extend_from_slice(&file_frame);
             }
+            // Region changes travel just ahead of the surface in the same ordered
+            // write, so the client declares them with the matching cells.
+            let smooth_regions =
+                smooth_regions.filter(|regions| *regions != client.shell_smooth_regions);
+            if let Some(regions) = &smooth_regions {
+                let companion = crate::smooth_scroll::SurfaceRegions {
+                    regions: regions.clone(),
+                };
+                let framed = serde_json::to_string(&companion)
+                    .map_err(std::io::Error::other)
+                    .and_then(|data| {
+                        Self::frame_server_message(&ServerMessage::EndpointControl {
+                            kind: crate::smooth_scroll::CONTROL_KIND.into(),
+                            data,
+                        })
+                        .map_err(std::io::Error::other)
+                    });
+                match framed {
+                    Ok(framed) => {
+                        let mut combined = framed;
+                        combined.extend_from_slice(&serialized);
+                        serialized = combined;
+                    }
+                    Err(err) => {
+                        warn!(client_id, err = %err, "failed to frame smooth scroll regions")
+                    }
+                }
+            }
             let send = if native_upload.is_some() || self.native_graphics.is_pending(client_id) {
                 writer.render.send_ordered(serialized)
             } else {
@@ -967,6 +998,9 @@ impl HeadlessServer {
             };
             match send {
                 Ok(()) => {
+                    if let Some(regions) = smooth_regions {
+                        client.shell_smooth_regions = regions;
+                    }
                     if let Some((graphics, inline_assets)) = prepared.queued_surface_graphics() {
                         self.native_graphics
                             .commit_scene(client_id, graphics, inline_assets);

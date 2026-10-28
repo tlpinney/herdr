@@ -497,14 +497,61 @@ type WritePtyCallback = dyn FnMut(&[u8]) + Send;
 
 const MAX_CLIPBOARD_BYTES: usize = 192 * 1024;
 
+/// Largest unknown APC retained. Smooth scroll declarations are tiny; this
+/// only bounds memory for other unrecognized APC traffic.
+const UNKNOWN_APC_MAX_BYTES: usize = 256;
+
+/// APC prefix of experimental smooth scroll region declarations
+/// (`ESC _ smooth;... ESC \`).
+const SMOOTH_APC_PREFIX: &[u8] = b"smooth;";
+
+/// Declarations retained between drains. Apps re-declare every frame, so
+/// older ones are superseded; this only bounds a flood.
+const MAX_PENDING_SMOOTH_DECLARATIONS: usize = 64;
+
 #[derive(Default)]
 struct TerminalCallbackState {
     write_pty: Option<Box<WritePtyCallback>>,
     bell_count: u16,
     pwd_changes: Vec<Vec<u8>>,
     clipboard_writes: Vec<Vec<u8>>,
+    smooth_declarations: Vec<Vec<u8>>,
     size_report: ffi::GhosttySizeReportSize,
     color_scheme: Option<ColorScheme>,
+}
+
+unsafe extern "C" fn unknown_sequence_trampoline(
+    _terminal: ffi::GhosttyTerminal,
+    userdata: *mut c_void,
+    sequence: *const ffi::GhosttyTerminalUnknownSequence,
+) {
+    if userdata.is_null() || sequence.is_null() {
+        return;
+    }
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: libghostty-vt owns the sequence for this synchronous call.
+        let sequence = unsafe { &*sequence };
+        if sequence.tag
+            != ffi::GhosttyTerminalUnknownSequenceTag_GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_APC
+        {
+            return;
+        }
+        // SAFETY: the tag selects the APC arm of the union.
+        let apc = unsafe { sequence.value.apc };
+        if apc.truncated || apc.content.ptr.is_null() {
+            return;
+        }
+        let content = unsafe { slice::from_raw_parts(apc.content.ptr, apc.content.len) };
+        let Some(payload) = content.strip_prefix(SMOOTH_APC_PREFIX) else {
+            return;
+        };
+        // SAFETY: userdata is the TerminalCallbackState installed with this terminal.
+        let state = unsafe { &mut *userdata.cast::<TerminalCallbackState>() };
+        if state.smooth_declarations.len() >= MAX_PENDING_SMOOTH_DECLARATIONS {
+            state.smooth_declarations.remove(0);
+        }
+        state.smooth_declarations.push(payload.to_vec());
+    }));
 }
 
 unsafe extern "C" fn bell_trampoline(_terminal: ffi::GhosttyTerminal, userdata: *mut c_void) {
@@ -958,6 +1005,18 @@ impl Terminal {
             .into_result()?;
             ffi::ghostty_terminal_set(
                 terminal.raw,
+                ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE,
+                (unknown_sequence_trampoline as *const ()).cast(),
+            )
+            .into_result()?;
+            ffi::ghostty_terminal_set(
+                terminal.raw,
+                ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_UNKNOWN_MAX_BYTES,
+                (&UNKNOWN_APC_MAX_BYTES as *const usize).cast(),
+            )
+            .into_result()?;
+            ffi::ghostty_terminal_set(
+                terminal.raw,
                 ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_GLYPH_PROTOCOL,
                 (&glyph_protocol as *const bool).cast(),
             )
@@ -1171,6 +1230,12 @@ impl Terminal {
 
     pub fn take_clipboard_writes(&mut self) -> Vec<Vec<u8>> {
         mem::take(&mut self.callback_state.clipboard_writes)
+    }
+
+    /// Payloads (after `smooth;`) of smooth scroll region declarations seen
+    /// since the last call, in order.
+    pub fn take_smooth_declarations(&mut self) -> Vec<Vec<u8>> {
+        mem::take(&mut self.callback_state.smooth_declarations)
     }
 
     pub fn mode_get(&self, mode: u16) -> Result<bool, Error> {
@@ -3831,6 +3896,26 @@ mod tests {
             .unwrap();
         }
         out
+    }
+
+    #[test]
+    fn smooth_declarations_capture_only_smooth_apc() {
+        let mut terminal = Terminal::new(20, 5, 0).unwrap();
+        terminal.write(b"\x1b_smooth;1;0;4;0;19;3;40\x1b\\text\x1b_other;x\x1b\\");
+        // Split across writes still yields one declaration.
+        terminal.write(b"\x1b_smoo");
+        terminal.write(b"th;off;1\x1b\\");
+        assert_eq!(
+            terminal.take_smooth_declarations(),
+            vec![b"1;0;4;0;19;3;40".to_vec(), b"off;1".to_vec()]
+        );
+        assert!(terminal.take_smooth_declarations().is_empty());
+
+        // Unterminated or oversized sequences are dropped.
+        terminal.write(b"\x1b_smooth;0;0;4;0;19;0;1\x18");
+        let long = [b"\x1b_smooth;".as_slice(), &[b'9'; 400], b"\x1b\\"].concat();
+        terminal.write(&long);
+        assert!(terminal.take_smooth_declarations().is_empty());
     }
 
     #[test]

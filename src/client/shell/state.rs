@@ -868,6 +868,11 @@ pub(crate) struct ClientShellState {
     pub(super) pending_pane_surface: Option<PaneSurfaceFrame>,
     pub(super) graphics: crate::kitty_graphics::surface::ClientState,
     pub(super) graphics_cell_size: crate::kitty_graphics::HostCellSize,
+    /// Smooth scroll regions of the current surface, in pane-surface cells.
+    pub(super) smooth_regions: Vec<crate::smooth_scroll::SurfaceRegion>,
+    pub(super) smooth_host_ids: crate::smooth_scroll::HostRegionIds,
+    /// Regions changed since they were last declared to the host terminal.
+    pub(super) smooth_regions_dirty: bool,
     pub(super) popup_terminal_id: Option<String>,
     pub(super) sidebar_collapsed: bool,
     pub(super) sidebar_collapsed_manual: bool,
@@ -1042,6 +1047,9 @@ impl ClientShellState {
                 width_px: 1,
                 height_px: 1,
             },
+            smooth_regions: Vec::new(),
+            smooth_host_ids: crate::smooth_scroll::HostRegionIds::default(),
+            smooth_regions_dirty: false,
             popup_terminal_id: None,
             sidebar_collapsed,
             sidebar_collapsed_manual: preferences.sidebar_collapsed.is_some(),
@@ -1608,6 +1616,18 @@ impl ClientShellState {
 
     pub(crate) fn has_presented_surface(&self) -> bool {
         self.pane_surface.is_some()
+    }
+
+    /// Replace the surface's smooth scroll regions. They are declared to the
+    /// host terminal with the next composed frame.
+    pub(crate) fn set_smooth_regions(&mut self, regions: crate::smooth_scroll::SurfaceRegions) {
+        self.smooth_regions = regions.regions;
+        self.smooth_regions_dirty = true;
+    }
+
+    /// Whether the next frame must be composed to declare changed regions.
+    pub(crate) fn smooth_regions_dirty(&self) -> bool {
+        self.smooth_regions_dirty
     }
 
     pub(crate) fn set_pane_surface(&mut self, surface: PaneSurfaceFrame) {

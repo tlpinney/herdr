@@ -344,6 +344,16 @@ impl TerminalRuntime {
         self.0.alternate_screen_active()
     }
 
+    /// Reads only the revision of the pane's declared smooth scroll regions.
+    pub fn smooth_regions_revision(&self) -> u64 {
+        self.0.smooth_regions_revision()
+    }
+
+    /// The pane's declared smooth scroll regions, if any.
+    pub fn smooth_regions(&self) -> Option<crate::smooth_scroll::PaneRegions> {
+        self.0.smooth_regions()
+    }
+
     pub fn cursor_state(
         &self,
         area: Rect,

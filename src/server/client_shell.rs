@@ -275,6 +275,59 @@ pub(super) struct RenderedPaneSurface {
     pub(super) graphics: protocol::SurfaceGraphicsScene,
     pub(super) graphics_delivery: crate::kitty_graphics::surface::DeliveryCache,
     pub(super) graphics_sources: crate::kitty_graphics::surface::SourceFiles,
+    /// Smooth scroll regions of visible panes, in pane-surface cells.
+    pub(super) smooth_regions: Vec<crate::smooth_scroll::SurfaceRegion>,
+}
+
+/// Smooth scroll regions declared by visible panes, translated into
+/// pane-surface cells. Panes scrolled back into herdr's own scrollback show
+/// history, not the program's live region, so they contribute none.
+pub(super) fn collect_smooth_regions(
+    app: &app::App,
+    workspace_index: usize,
+    pane_infos: &[crate::layout::PaneInfo],
+) -> Vec<crate::smooth_scroll::SurfaceRegion> {
+    let mut regions = Vec::new();
+    for pane in pane_infos {
+        let Some(runtime) = app.state.runtime_for_pane_in_workspace(
+            &app.terminal_runtimes,
+            workspace_index,
+            pane.id,
+        ) else {
+            continue;
+        };
+        // Revision 0 means the program never declared a region.
+        if runtime.smooth_regions_revision() == 0 {
+            continue;
+        }
+        let Some(declared) = runtime.smooth_regions() else {
+            continue;
+        };
+        if runtime
+            .scroll_metrics()
+            .is_some_and(|metrics| metrics.offset_from_bottom > 0)
+        {
+            continue;
+        }
+        let Some(pane_id) = app.public_pane_id(workspace_index, pane.id) else {
+            continue;
+        };
+        let area = pane.inner_rect;
+        for (id, region) in declared.iter() {
+            if let Some(rect) =
+                crate::smooth_scroll::translate(region, area.x, area.y, area.width, area.height)
+            {
+                regions.push(crate::smooth_scroll::SurfaceRegion {
+                    pane_id: pane_id.clone(),
+                    id,
+                    rect,
+                    pos: region.pos,
+                    max: region.max,
+                });
+            }
+        }
+    }
+    regions
 }
 
 #[derive(Debug)]
@@ -341,6 +394,10 @@ pub(super) fn render_pane_surface(
             layout,
             area,
         );
+    // Read right after the cells so the declared positions match them.
+    let smooth_regions = target
+        .map(|target| collect_smooth_regions(app, target.workspace_index, &layout.pane_infos))
+        .unwrap_or_default();
     let panes = target
         .map(|target| {
             let workspace_index = target.workspace_index;
@@ -491,6 +548,7 @@ pub(super) fn render_pane_surface(
         graphics,
         graphics_delivery: next_graphics_delivery,
         graphics_sources,
+        smooth_regions,
     })
 }
 

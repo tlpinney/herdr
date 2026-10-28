@@ -218,6 +218,8 @@ pub(crate) struct GhosttyPaneCore {
     decscusr_tracker: DecscusrTracker,
     cursor_settle_state: CursorPositionSettleState,
     windows_powershell_prompt_cwd_reporting: bool,
+    /// Smooth scroll regions the pane's program declared (see `smooth_scroll`).
+    smooth_regions: crate::smooth_scroll::PaneRegions,
 }
 
 pub(crate) struct PaneTerminal {
@@ -463,6 +465,14 @@ impl PaneTerminal {
 
     pub fn alternate_screen_active(&self) -> bool {
         self.ghostty.alternate_screen_active()
+    }
+
+    pub fn smooth_regions_revision(&self) -> u64 {
+        self.ghostty.smooth_regions_revision()
+    }
+
+    pub fn smooth_regions(&self) -> Option<crate::smooth_scroll::PaneRegions> {
+        self.ghostty.smooth_regions()
     }
 
     pub fn wheel_routing(&self) -> Option<crate::pane::WheelRouting> {
@@ -1204,6 +1214,7 @@ impl GhosttyPaneTerminal {
                 decscusr_tracker: DecscusrTracker::default(),
                 cursor_settle_state: CursorPositionSettleState::default(),
                 windows_powershell_prompt_cwd_reporting: false,
+                smooth_regions: crate::smooth_scroll::PaneRegions::default(),
             }),
             key_encoder: Mutex::new(key_encoder),
             pending_pty_responses,
@@ -1376,6 +1387,7 @@ impl GhosttyPaneTerminal {
         // Those effects must not be delivered as live pane output.
         let _ = core.terminal.take_bell_count();
         let _ = core.terminal.take_clipboard_writes();
+        let _ = core.terminal.take_smooth_declarations();
         let default_color_observation = core.default_color_tracker.observe(bytes);
         if shell_pid > 0 && default_color_observation {
             if let Some(owner_pgid) = current_transient_default_color_owner(shell_pid) {
@@ -1410,6 +1422,7 @@ impl GhosttyPaneTerminal {
             .terminal
             .mode_get(crate::ghostty::MODE_SYNCHRONIZED_OUTPUT)
             .unwrap_or(false);
+        let alternate_screen_before = core.terminal.active_screen().ok();
         let write_started = crate::render_prof::timer();
         self.write_pty_bytes_with_ordered_responses(
             &mut core,
@@ -1421,6 +1434,13 @@ impl GhosttyPaneTerminal {
         );
         let terminal_bells = core.terminal.take_bell_count();
         let clipboard_writes = core.terminal.take_clipboard_writes();
+        // Regions belong to the screen they were declared on.
+        if core.terminal.active_screen().ok() != alternate_screen_before {
+            core.smooth_regions.clear();
+        }
+        for payload in core.terminal.take_smooth_declarations() {
+            core.smooth_regions.apply_payload(&payload);
+        }
         let reported_cwd = core
             .terminal
             .take_pwd_changes()
@@ -1901,6 +1921,20 @@ impl GhosttyPaneTerminal {
         self.core.lock().is_ok_and(|core| {
             core.terminal.active_screen().ok() == Some(crate::ghostty::ActiveScreen::Alternate)
         })
+    }
+
+    /// Revision of the declared smooth scroll regions; cheap enough for
+    /// pane-scaled render loops.
+    pub fn smooth_regions_revision(&self) -> u64 {
+        self.core
+            .lock()
+            .map_or(0, |core| core.smooth_regions.revision())
+    }
+
+    /// The declared smooth scroll regions, or `None` when there are none.
+    pub fn smooth_regions(&self) -> Option<crate::smooth_scroll::PaneRegions> {
+        let core = self.core.lock().ok()?;
+        (!core.smooth_regions.is_empty()).then(|| core.smooth_regions.clone())
     }
 
     // This aggregate snapshot performs multiple terminal queries. Pane-scaled

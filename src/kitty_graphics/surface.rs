@@ -74,6 +74,11 @@ impl Occlusion {
         self.popup_start = self.regions.len();
     }
 
+    /// Whether any overlay covers part of `rect`.
+    pub(crate) fn intersects(&self, rect: Rect) -> bool {
+        self.regions.iter().any(|region| region.intersects(rect))
+    }
+
     #[cfg(test)]
     fn covers(&self, placement: &SurfaceGraphicsPlacement, origin: (u16, u16)) -> bool {
         self.visible_pieces(placement, origin, 1) != Some(vec![GridPiece::whole(placement)])

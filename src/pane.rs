@@ -3494,6 +3494,14 @@ impl PaneRuntime {
         self.terminal.alternate_screen_active()
     }
 
+    pub fn smooth_regions_revision(&self) -> u64 {
+        self.terminal.smooth_regions_revision()
+    }
+
+    pub fn smooth_regions(&self) -> Option<crate::smooth_scroll::PaneRegions> {
+        self.terminal.smooth_regions()
+    }
+
     pub fn cursor_state(&self, area: Rect, show_cursor: bool) -> Option<TerminalCursorState> {
         if !show_cursor {
             return None;

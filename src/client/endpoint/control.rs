@@ -11,6 +11,7 @@ pub(crate) enum EndpointControlMessage {
     AgentViewProjection(DecodedAgentViewProjection),
     AgentCompletions(crate::protocol::endpoint::EndpointAgentCompletions),
     Snapshot(Box<crate::protocol::ClientShellSnapshot>),
+    SmoothRegions(crate::smooth_scroll::SurfaceRegions),
     Ignored,
 }
 
@@ -53,6 +54,11 @@ pub(crate) fn decode_endpoint_control(
             },
         ));
     }
+    if kind == crate::smooth_scroll::CONTROL_KIND {
+        return Ok(serde_json::from_str(data)
+            .map(EndpointControlMessage::SmoothRegions)
+            .unwrap_or(EndpointControlMessage::Ignored));
+    }
     if kind == crate::protocol::endpoint::ENDPOINT_SNAPSHOT_KIND {
         let snapshot = serde_json::from_str(data)
             .map_err(|error| format!("invalid endpoint snapshot: {error}"))?;
@@ -74,6 +80,35 @@ pub(crate) fn protocol_failure_is_fatal(endpoint_id: &ClientEndpointId) -> bool 
 mod tests {
     use super::*;
     use crate::client::endpoint::ProfileId;
+
+    #[test]
+    fn smooth_regions_control_round_trips_and_ignores_bad_payloads() {
+        let regions = crate::smooth_scroll::SurfaceRegions {
+            regions: vec![crate::smooth_scroll::SurfaceRegion {
+                pane_id: "w1:p2".into(),
+                id: 0,
+                rect: crate::smooth_scroll::CellRect {
+                    top: 1,
+                    bottom: 9,
+                    left: 4,
+                    right: 40,
+                },
+                pos: 3,
+                max: 120,
+            }],
+        };
+        let data = serde_json::to_string(&regions).unwrap();
+        let EndpointControlMessage::SmoothRegions(decoded) =
+            decode_endpoint_control(crate::smooth_scroll::CONTROL_KIND, &data).unwrap()
+        else {
+            panic!("expected smooth regions");
+        };
+        assert_eq!(decoded, regions);
+        assert!(matches!(
+            decode_endpoint_control(crate::smooth_scroll::CONTROL_KIND, "invalid").unwrap(),
+            EndpointControlMessage::Ignored
+        ));
+    }
 
     #[test]
     fn unknown_optional_controls_are_ignored() {
