@@ -23,6 +23,9 @@ pub(crate) struct PopupPaneState {
     /// The pane whose cursor the popup opens at, when it was asked to open
     /// at the cursor instead of centered.
     pub anchor_pane: Option<PaneId>,
+    /// The anchored popup's outer rect from the last surface render, relative
+    /// to the pane surface; `None` keeps the popup centered.
+    pub anchor_outer: Option<Rect>,
 }
 
 use crate::terminal_theme::{HostAppearance, TerminalTheme};

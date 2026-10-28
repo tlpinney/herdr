@@ -12,7 +12,7 @@ pub(crate) enum EndpointControlMessage {
     AgentCompletions(crate::protocol::endpoint::EndpointAgentCompletions),
     Snapshot(Box<crate::protocol::ClientShellSnapshot>),
     SmoothRegions(crate::smooth_scroll::SurfaceRegions),
-    PopupAnchor(Option<(u16, u16)>),
+    PopupAnchor(Option<[u16; 4]>),
     Ignored,
 }
 

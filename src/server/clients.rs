@@ -183,7 +183,7 @@ pub(crate) struct ClientConnection {
     /// Smooth scroll regions last sent to this client shell.
     pub(crate) shell_smooth_regions: Vec<crate::smooth_scroll::SurfaceRegion>,
     /// Popup anchor last sent to this client shell.
-    pub(crate) shell_popup_anchor: Option<(u16, u16)>,
+    pub(crate) shell_popup_anchor: Option<[u16; 4]>,
     /// Host region ids declared in this terminal attach or observe stream.
     pub(crate) terminal_smooth_ids: crate::smooth_scroll::HostRegionIds,
     /// Monotonic shell replacement revision for this connection.

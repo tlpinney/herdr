@@ -41,8 +41,9 @@ impl PopupSize {
     }
 }
 
-/// Endpoint control carrying the cell a cursor-anchored popup opens at, in
-/// pane-surface cells (`[column, row]`), or `null` for a centered popup.
+/// Endpoint control carrying a cursor-anchored popup's outer rect, in
+/// pane-surface cells (`[x, y, width, height]`), or `null` for a centered
+/// popup.
 pub const ANCHOR_CONTROL_KIND: &str = "herdr.popup_anchor.v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,71 +57,103 @@ pub(crate) fn resolve_popup_geometry(
     height: Option<PopupSize>,
     area: Rect,
 ) -> Option<PopupResolvedGeometry> {
-    resolve_popup_geometry_at(width, height, area, None)
-}
-
-/// Like `resolve_popup_geometry`, but with `anchor` (a cell relative to
-/// `area`'s origin, normally a pane's cursor) the popup opens on the row
-/// below it with its content starting in the anchor's column, or above the
-/// anchor row when there is no room below. It stays inside `area`.
-pub(crate) fn resolve_popup_geometry_at(
-    width: Option<PopupSize>,
-    height: Option<PopupSize>,
-    area: Rect,
-    anchor: Option<(u16, u16)>,
-) -> Option<PopupResolvedGeometry> {
-    let default_width = area.width.saturating_div(2).max(6);
-    let default_height = area.height.saturating_div(2).max(4);
-    let outer_width = width
-        .map(|width| width.resolve(area.width))
-        .unwrap_or(default_width)
-        .max(6)
-        .min(area.width);
-    let outer_height = height
-        .map(|height| height.resolve(area.height))
-        .unwrap_or(default_height)
-        .max(4)
-        .min(area.height);
+    let outer_width = popup_extent(width, area.width, 6);
+    let outer_height = popup_extent(height, area.height, 4);
     if outer_width < 6 || outer_height < 4 {
         return None;
     }
+    Some(popup_geometry_for_outer(Rect::new(
+        area.x + (area.width.saturating_sub(outer_width)) / 2,
+        area.y + (area.height.saturating_sub(outer_height)) / 2,
+        outer_width,
+        outer_height,
+    )))
+}
 
-    let (outer_x, outer_y) = match anchor {
-        Some((column, row)) => {
-            let max_x = area.width - outer_width;
-            let x = column.saturating_sub(1).min(max_x);
-            let below = row.saturating_add(1);
-            let y = if below.saturating_add(outer_height) <= area.height {
-                below
-            } else if row >= outer_height {
-                row - outer_height
-            } else {
-                area.height - outer_height
-            };
-            (area.x + x, area.y + y)
-        }
-        None => (
-            area.x + (area.width.saturating_sub(outer_width)) / 2,
-            area.y + (area.height.saturating_sub(outer_height)) / 2,
-        ),
-    };
-    let pane_inner_width = outer_width.saturating_sub(2);
-    let pane_inner_height = outer_height.saturating_sub(2);
+/// The requested popup extent along one axis, defaulting to half of
+/// `available`, at least `minimum` and at most `available`.
+fn popup_extent(size: Option<PopupSize>, available: u16, minimum: u16) -> u16 {
+    size.map(|size| size.resolve(available))
+        .unwrap_or(available.saturating_div(2).max(minimum))
+        .max(minimum)
+        .min(available)
+}
+
+/// The popup's border box and terminal area for an outer rect.
+pub(crate) fn popup_geometry_for_outer(outer: Rect) -> PopupResolvedGeometry {
+    let pane_inner_width = outer.width.saturating_sub(2);
+    let pane_inner_height = outer.height.saturating_sub(2);
     let terminal_cols = if pane_inner_width <= 4 {
         pane_inner_width
     } else {
         pane_inner_width.saturating_sub(1)
     };
-    let inner = Rect::new(
-        outer_x.saturating_add(1),
-        outer_y.saturating_add(1),
-        terminal_cols,
-        pane_inner_height,
-    );
-    Some(PopupResolvedGeometry {
-        outer: Rect::new(outer_x, outer_y, outer_width, outer_height),
-        inner,
+    PopupResolvedGeometry {
+        outer,
+        inner: Rect::new(
+            outer.x.saturating_add(1),
+            outer.y.saturating_add(1),
+            terminal_cols,
+            pane_inner_height,
+        ),
+    }
+}
+
+/// Smallest anchored popup worth showing; a pane that cannot hold one lends
+/// the popup the whole area instead.
+const ANCHORED_MIN_WIDTH: u16 = 24;
+const ANCHORED_MIN_HEIGHT: u16 = 7;
+
+/// The outer rect of a popup opened at `cursor` inside `pane` (both in
+/// `area`'s coordinates). It sits on the rows just above the cursor, or just
+/// below when there is no room above, with its content starting in the
+/// cursor's column. It stays inside the pane, giving up rows or columns to
+/// fit, and only a pane too small for a readable popup lets it use the whole
+/// area. `None` when even the area is too small; the caller then centers.
+pub(crate) fn resolve_anchored_popup(
+    width: Option<PopupSize>,
+    height: Option<PopupSize>,
+    area: Rect,
+    cursor: (u16, u16),
+    pane: Rect,
+) -> Option<Rect> {
+    let pane = pane.intersection(area);
+    anchored_in(width, height, cursor, pane).or_else(|| {
+        (pane != area)
+            .then(|| anchored_in(width, height, cursor, area))
+            .flatten()
     })
+}
+
+fn anchored_in(
+    width: Option<PopupSize>,
+    height: Option<PopupSize>,
+    (column, row): (u16, u16),
+    bounds: Rect,
+) -> Option<Rect> {
+    if bounds.width < ANCHORED_MIN_WIDTH || !(bounds.y..bounds.bottom()).contains(&row) {
+        return None;
+    }
+    let outer_width = popup_extent(width, bounds.width, ANCHORED_MIN_WIDTH);
+    let wanted = popup_extent(height, bounds.height, ANCHORED_MIN_HEIGHT);
+    let above = row - bounds.y;
+    let below = bounds.bottom() - row - 1;
+    let (y, outer_height) = if above >= wanted {
+        (row - wanted, wanted)
+    } else if below >= wanted {
+        (row + 1, wanted)
+    } else if above >= below {
+        (bounds.y, above)
+    } else {
+        (row + 1, below)
+    };
+    if outer_height < ANCHORED_MIN_HEIGHT {
+        return None;
+    }
+    let x = column
+        .saturating_sub(1)
+        .clamp(bounds.x, bounds.right() - outer_width);
+    Some(Rect::new(x, y, outer_width, outer_height))
 }
 
 impl Serialize for PopupSize {
@@ -268,39 +301,64 @@ mod tests {
     }
 
     #[test]
-    fn anchored_popup_opens_below_the_anchor_row() {
-        let area = ratatui::layout::Rect::new(0, 2, 100, 30);
-        let resolved = super::resolve_popup_geometry_at(
+    fn anchored_popup_opens_above_the_cursor_inside_its_pane() {
+        let area = ratatui::layout::Rect::new(0, 0, 120, 40);
+        let pane = ratatui::layout::Rect::new(60, 0, 60, 40);
+        let outer = super::resolve_anchored_popup(
             Some(PopupSize::Cells(40)),
-            Some(PopupSize::Cells(10)),
+            Some(PopupSize::Cells(12)),
             area,
-            Some((20, 5)),
+            (70, 30),
+            pane,
         )
         .unwrap();
-        assert_eq!(resolved.outer, ratatui::layout::Rect::new(19, 8, 40, 10));
-        assert_eq!(resolved.inner.x, 20);
+        assert_eq!(outer, ratatui::layout::Rect::new(69, 18, 40, 12));
+        assert_eq!(super::popup_geometry_for_outer(outer).inner.x, 70);
     }
 
     #[test]
-    fn anchored_popup_flips_above_and_stays_inside() {
-        let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-        let near_bottom = super::resolve_popup_geometry_at(
+    fn anchored_popup_goes_below_when_there_is_no_room_above() {
+        let area = ratatui::layout::Rect::new(0, 0, 120, 40);
+        let pane = ratatui::layout::Rect::new(0, 20, 120, 20);
+        let outer = super::resolve_anchored_popup(
             Some(PopupSize::Cells(40)),
-            Some(PopupSize::Cells(10)),
+            Some(PopupSize::Cells(12)),
             area,
-            Some((90, 25)),
+            (0, 22),
+            pane,
         )
         .unwrap();
-        assert_eq!(near_bottom.outer, ratatui::layout::Rect::new(60, 15, 40, 10));
+        assert_eq!(outer, ratatui::layout::Rect::new(0, 23, 40, 12));
+    }
 
-        let cramped = super::resolve_popup_geometry_at(
-            Some(PopupSize::Cells(40)),
-            Some(PopupSize::Cells(20)),
-            ratatui::layout::Rect::new(0, 0, 100, 24),
-            Some((0, 10)),
+    #[test]
+    fn anchored_popup_shrinks_and_stays_inside_a_narrow_pane() {
+        let area = ratatui::layout::Rect::new(0, 0, 120, 40);
+        let pane = ratatui::layout::Rect::new(80, 10, 30, 16);
+        let outer = super::resolve_anchored_popup(
+            Some(PopupSize::Cells(64)),
+            Some(PopupSize::Cells(16)),
+            area,
+            (108, 19),
+            pane,
         )
         .unwrap();
-        assert_eq!(cramped.outer, ratatui::layout::Rect::new(0, 4, 40, 20));
+        assert_eq!(outer, ratatui::layout::Rect::new(80, 10, 30, 9));
+    }
+
+    #[test]
+    fn anchored_popup_uses_the_area_when_the_pane_is_too_small() {
+        let area = ratatui::layout::Rect::new(0, 0, 120, 40);
+        let pane = ratatui::layout::Rect::new(0, 30, 20, 4);
+        let outer = super::resolve_anchored_popup(
+            Some(PopupSize::Cells(40)),
+            Some(PopupSize::Cells(12)),
+            area,
+            (5, 31),
+            pane,
+        )
+        .unwrap();
+        assert_eq!(outer, ratatui::layout::Rect::new(4, 19, 40, 12));
     }
 
     #[test]

@@ -277,31 +277,63 @@ pub(super) struct RenderedPaneSurface {
     pub(super) graphics_sources: crate::kitty_graphics::surface::SourceFiles,
     /// Smooth scroll regions of visible panes, in pane-surface cells.
     pub(super) smooth_regions: Vec<crate::smooth_scroll::SurfaceRegion>,
-    /// Where a cursor-anchored popup opens, in pane-surface cells.
-    pub(super) popup_anchor: Option<(u16, u16)>,
+    /// A cursor-anchored popup's outer rect (`[x, y, width, height]`), in
+    /// pane-surface cells.
+    pub(super) popup_anchor: Option<[u16; 4]>,
 }
 
-/// The cursor of the pane a cursor-anchored popup was opened from, in
-/// pane-surface cells. `None` for centered popups, or when that pane is not
-/// visible or shows no cursor; the popup is then centered.
-fn popup_cursor_anchor(
+/// The outer rect of a cursor-anchored popup, placed at the cursor of the
+/// pane it was opened from and relative to `area`. `None` for centered
+/// popups, or when that pane is not visible or shows no cursor; the popup is
+/// then centered.
+fn popup_anchor_rect(
     app: &app::App,
     workspace_index: usize,
     pane_infos: &[crate::layout::PaneInfo],
     area: Rect,
-) -> Option<(u16, u16)> {
-    let anchor_pane = app.state.popup_pane.as_ref()?.anchor_pane?;
-    let pane = pane_infos.iter().find(|pane| pane.id == anchor_pane)?;
+) -> Option<Rect> {
+    let popup = app.state.popup_pane.as_ref()?;
+    let pane = pane_infos
+        .iter()
+        .find(|pane| Some(pane.id) == popup.anchor_pane)?;
     let runtime = app.state.runtime_for_pane_in_workspace(
         &app.terminal_runtimes,
         workspace_index,
         pane.id,
     )?;
     let cursor = runtime.cursor_state(pane.inner_rect, true)?;
-    Some((
-        cursor.x.saturating_sub(area.x),
-        cursor.y.saturating_sub(area.y),
+    let outer = crate::popup_size::resolve_anchored_popup(
+        popup.width,
+        popup.height,
+        area,
+        (cursor.x, cursor.y),
+        pane.inner_rect,
+    )?;
+    Some(Rect::new(
+        outer.x - area.x,
+        outer.y - area.y,
+        outer.width,
+        outer.height,
     ))
+}
+
+/// The popup's geometry in `area`: at its anchored rect when it has one that
+/// fits, else centered.
+fn popup_geometry(
+    popup: &crate::app::state::PopupPaneState,
+    area: Rect,
+) -> Option<crate::popup_size::PopupResolvedGeometry> {
+    match popup.anchor_outer {
+        Some(outer) if outer.right() <= area.width && outer.bottom() <= area.height => Some(
+            crate::popup_size::popup_geometry_for_outer(Rect::new(
+                area.x + outer.x,
+                area.y + outer.y,
+                outer.width,
+                outer.height,
+            )),
+        ),
+        _ => crate::popup_size::resolve_popup_geometry(popup.width, popup.height, area),
+    }
 }
 
 /// Smooth scroll regions declared by visible panes, translated into
@@ -552,15 +584,19 @@ pub(super) fn render_pane_surface(
             })
         })
         .collect();
+    let anchor_outer = target.filter(|_| show_popup).and_then(|target| {
+        popup_anchor_rect(app, target.workspace_index, &layout.pane_infos, area)
+    });
+    if let Some(popup) = app.state.popup_pane.as_mut() {
+        popup.anchor_outer = anchor_outer;
+    }
     let popup = show_popup
         .then(|| render_popup_surface(app, area, resize_panes, cell_size))
         .flatten();
     let popup_anchor = popup
         .as_ref()
-        .zip(target)
-        .and_then(|(_, target)| {
-            popup_cursor_anchor(app, target.workspace_index, &layout.pane_infos, area)
-        });
+        .and(anchor_outer)
+        .map(|outer| [outer.x, outer.y, outer.width, outer.height]);
     let (graphics, next_graphics_delivery, graphics_sources) =
         crate::server::client_shell_graphics::collect(
             app,
@@ -628,7 +664,7 @@ fn render_popup_surface(
     let geometry = if resize_runtime {
         resize_popup_runtime(app, area, cell_size)?
     } else {
-        crate::popup_size::resolve_popup_geometry(popup.width, popup.height, area)?
+        popup_geometry(popup, area)?
     };
     let runtime = app.terminal_runtimes.get(&popup.terminal_id)?;
     let content_area = Rect::new(0, 0, geometry.inner.width, geometry.inner.height);
@@ -668,7 +704,7 @@ pub(super) fn resize_popup_runtime(
     cell_size: crate::kitty_graphics::HostCellSize,
 ) -> Option<crate::popup_size::PopupResolvedGeometry> {
     let popup = app.state.popup_pane.as_ref()?;
-    let geometry = crate::popup_size::resolve_popup_geometry(popup.width, popup.height, area)?;
+    let geometry = popup_geometry(popup, area)?;
     let runtime = app.terminal_runtimes.get(&popup.terminal_id)?;
     if !app
         .state

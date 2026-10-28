@@ -167,6 +167,7 @@ impl App {
             width: geometry.width,
             height: geometry.height,
             anchor_pane: geometry.at_cursor.then_some(focused_pane),
+            anchor_outer: None,
         });
         self.state.mode = Mode::Terminal;
         Ok(())
@@ -192,6 +193,7 @@ impl App {
             width: None,
             height: None,
             anchor_pane: None,
+            anchor_outer: None,
         });
         (pane_id, terminal_id)
     }
@@ -224,6 +226,7 @@ mod tests {
             width: None,
             height: None,
             anchor_pane: None,
+            anchor_outer: None,
         });
         app
     }
