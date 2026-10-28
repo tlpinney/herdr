@@ -182,6 +182,8 @@ pub(crate) struct ClientConnection {
     pub(crate) shell_agent_view: Option<crate::api::schema::AgentViewSetParams>,
     /// Smooth scroll regions last sent to this client shell.
     pub(crate) shell_smooth_regions: Vec<crate::smooth_scroll::SurfaceRegion>,
+    /// Popup anchor last sent to this client shell.
+    pub(crate) shell_popup_anchor: Option<(u16, u16)>,
     /// Host region ids declared in this terminal attach or observe stream.
     pub(crate) terminal_smooth_ids: crate::smooth_scroll::HostRegionIds,
     /// Monotonic shell replacement revision for this connection.
@@ -254,6 +256,7 @@ impl ClientConnection {
             shell_agent_completions: None,
             shell_agent_view: None,
             shell_smooth_regions: Vec::new(),
+            shell_popup_anchor: None,
             terminal_smooth_ids: Default::default(),
             shell_projection_revision: 0,
             shell_endpoint_command_in_flight: false,

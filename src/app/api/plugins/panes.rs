@@ -28,7 +28,11 @@ impl App {
             &pane.command,
             Some(cwd),
             extra_env,
-            crate::app::popup::PopupGeometry { width, height },
+            crate::app::popup::PopupGeometry {
+                width,
+                height,
+                at_cursor: params.at_cursor,
+            },
         ) {
             return encode_error(id, "plugin_pane_open_failed", err.to_string());
         }

@@ -237,6 +237,7 @@ impl App {
             crate::app::popup::PopupGeometry {
                 width: binding.width,
                 height: binding.height,
+                at_cursor: false,
             },
         )
     }

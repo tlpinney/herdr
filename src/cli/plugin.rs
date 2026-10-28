@@ -697,6 +697,7 @@ fn plugin_pane_open(args: &[String]) -> std::io::Result<i32> {
     let mut cwd = None;
     let mut focus = true;
     let mut env = HashMap::new();
+    let mut at_cursor = false;
 
     let mut index = 0;
     while index < args.len() {
@@ -788,6 +789,10 @@ fn plugin_pane_open(args: &[String]) -> std::io::Result<i32> {
                 focus = false;
                 index += 1;
             }
+            "--at-cursor" => {
+                at_cursor = true;
+                index += 1;
+            }
             other => {
                 eprintln!("unknown option: {other}");
                 return Ok(2);
@@ -816,6 +821,7 @@ fn plugin_pane_open(args: &[String]) -> std::io::Result<i32> {
         cwd,
         focus,
         env,
+        at_cursor,
     }))
 }
 
@@ -1830,7 +1836,7 @@ fn print_plugin_action_help() {
 
 fn print_plugin_pane_help() {
     eprintln!("herdr plugin pane commands:");
-    eprintln!("  herdr plugin pane open --plugin ID --entrypoint ID [--placement overlay|popup|split|tab|zoomed] [--width SIZE] [--height SIZE] [--workspace ID] [--target-pane PANE] [--direction right|down] [--cwd PATH] [--env KEY=VALUE] [--focus|--no-focus]");
+    eprintln!("  herdr plugin pane open --plugin ID --entrypoint ID [--placement overlay|popup|split|tab|zoomed] [--width SIZE] [--height SIZE] [--workspace ID] [--target-pane PANE] [--direction right|down] [--cwd PATH] [--env KEY=VALUE] [--focus|--no-focus] [--at-cursor]");
     eprintln!("  herdr plugin pane focus <pane_id>");
     eprintln!("  herdr plugin pane close <pane_id>");
 }

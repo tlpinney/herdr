@@ -12,6 +12,7 @@ pub(crate) enum EndpointControlMessage {
     AgentCompletions(crate::protocol::endpoint::EndpointAgentCompletions),
     Snapshot(Box<crate::protocol::ClientShellSnapshot>),
     SmoothRegions(crate::smooth_scroll::SurfaceRegions),
+    PopupAnchor(Option<(u16, u16)>),
     Ignored,
 }
 
@@ -53,6 +54,11 @@ pub(crate) fn decode_endpoint_control(
                 view,
             },
         ));
+    }
+    if kind == crate::popup_size::ANCHOR_CONTROL_KIND {
+        return Ok(serde_json::from_str(data)
+            .map(EndpointControlMessage::PopupAnchor)
+            .unwrap_or(EndpointControlMessage::Ignored));
     }
     if kind == crate::smooth_scroll::CONTROL_KIND {
         return Ok(serde_json::from_str(data)

@@ -2131,6 +2131,14 @@ async fn run_client_loop(
                                 }
                                 continue;
                             }
+                            Ok(endpoint::EndpointControlMessage::PopupAnchor(anchor)) => {
+                                if endpoint_active {
+                                    if let Some(shell) = state.shell.as_mut() {
+                                        shell.set_popup_anchor(anchor);
+                                    }
+                                }
+                                continue;
+                            }
                             Ok(endpoint::EndpointControlMessage::Ignored) => {
                                 debug!(%kind, "ignoring unknown endpoint control message");
                                 continue;

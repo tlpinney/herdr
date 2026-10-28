@@ -436,6 +436,10 @@ pub struct PluginPaneOpenParams {
     pub focus: bool,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub env: HashMap<String, String>,
+    /// Popup placement only: open at the focused pane's cursor instead of
+    /// centered.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub at_cursor: bool,
 }
 
 #[derive(

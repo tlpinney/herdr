@@ -895,7 +895,8 @@ fn plugin_command() -> Command {
                         .arg(path_option("cwd", "PATH"))
                         .arg(env_option())
                         .arg(flag("focus"))
-                        .arg(flag("no-focus")),
+                        .arg(flag("no-focus"))
+                        .arg(flag("at-cursor")),
                 )
                 .subcommand(
                     Command::new("focus")

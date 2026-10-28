@@ -873,6 +873,8 @@ pub(crate) struct ClientShellState {
     pub(super) smooth_host_ids: crate::smooth_scroll::HostRegionIds,
     /// Regions changed since they were last declared to the host terminal.
     pub(super) smooth_regions_dirty: bool,
+    /// Where a cursor-anchored popup opens, in pane-surface cells.
+    pub(super) popup_anchor: Option<(u16, u16)>,
     pub(super) popup_terminal_id: Option<String>,
     pub(super) sidebar_collapsed: bool,
     pub(super) sidebar_collapsed_manual: bool,
@@ -1050,6 +1052,7 @@ impl ClientShellState {
             smooth_regions: Vec::new(),
             smooth_host_ids: crate::smooth_scroll::HostRegionIds::default(),
             smooth_regions_dirty: false,
+            popup_anchor: None,
             popup_terminal_id: None,
             sidebar_collapsed,
             sidebar_collapsed_manual: preferences.sidebar_collapsed.is_some(),
@@ -1623,6 +1626,11 @@ impl ClientShellState {
     pub(crate) fn set_smooth_regions(&mut self, regions: crate::smooth_scroll::SurfaceRegions) {
         self.smooth_regions = regions.regions;
         self.smooth_regions_dirty = true;
+    }
+
+    /// Set where the next popup surface opens; `None` centers it.
+    pub(crate) fn set_popup_anchor(&mut self, anchor: Option<(u16, u16)>) {
+        self.popup_anchor = anchor;
     }
 
     /// Whether the next frame must be composed to declare changed regions.

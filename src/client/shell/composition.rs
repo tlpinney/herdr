@@ -562,9 +562,12 @@ impl ClientShellState {
         if let Some(popup) = surface.popup.as_deref() {
             let width = popup.width.map(client_popup_size);
             let height = popup.height.map(client_popup_size);
-            if let Some(geometry) =
-                crate::popup_size::resolve_popup_geometry(width, height, layout.pane_surface)
-            {
+            if let Some(geometry) = crate::popup_size::resolve_popup_geometry_at(
+                width,
+                height,
+                layout.pane_surface,
+                self.popup_anchor,
+            ) {
                 occlusion.start_popup(geometry.outer);
                 let mut composed = frame.to_ratatui_buffer()?;
                 let block = ratatui::widgets::Block::default()

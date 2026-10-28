@@ -20,6 +20,9 @@ pub(crate) struct PopupPaneState {
     pub terminal_id: crate::terminal::TerminalId,
     pub width: Option<crate::popup_size::PopupSize>,
     pub height: Option<crate::popup_size::PopupSize>,
+    /// The pane whose cursor the popup opens at, when it was asked to open
+    /// at the cursor instead of centered.
+    pub anchor_pane: Option<PaneId>,
 }
 
 use crate::terminal_theme::{HostAppearance, TerminalTheme};

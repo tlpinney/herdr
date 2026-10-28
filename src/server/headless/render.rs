@@ -736,6 +736,7 @@ impl HeadlessServer {
             }
             let mut surface_parts = None;
             let mut smooth_regions = None;
+            let mut popup_anchor = None;
             let frame = match mode {
                 ClientConnectionMode::ClientShell => {
                     let crate::server::client_shell::RenderedPaneSurface {
@@ -747,8 +748,10 @@ impl HeadlessServer {
                         graphics_delivery: next_graphics_delivery,
                         graphics_sources,
                         smooth_regions: rendered_smooth_regions,
+                        popup_anchor: rendered_popup_anchor,
                     } = shell_render.expect("active shell surface");
                     smooth_regions = Some(rendered_smooth_regions);
+                    popup_anchor = Some(rendered_popup_anchor);
                     surface_parts = Some((
                         panes,
                         splits,
@@ -1003,6 +1006,29 @@ impl HeadlessServer {
                     }
                 }
             }
+            // A changed popup anchor also goes just ahead of its surface, so
+            // the client places the popup it carries.
+            let popup_anchor =
+                popup_anchor.filter(|anchor| *anchor != client.shell_popup_anchor);
+            if let Some(anchor) = &popup_anchor {
+                let framed = serde_json::to_string(anchor)
+                    .map_err(std::io::Error::other)
+                    .and_then(|data| {
+                        Self::frame_server_message(&ServerMessage::EndpointControl {
+                            kind: crate::popup_size::ANCHOR_CONTROL_KIND.into(),
+                            data,
+                        })
+                        .map_err(std::io::Error::other)
+                    });
+                match framed {
+                    Ok(framed) => {
+                        let mut combined = framed;
+                        combined.extend_from_slice(&serialized);
+                        serialized = combined;
+                    }
+                    Err(err) => warn!(client_id, err = %err, "failed to frame popup anchor"),
+                }
+            }
             let send = if native_upload.is_some() || self.native_graphics.is_pending(client_id) {
                 writer.render.send_ordered(serialized)
             } else {
@@ -1012,6 +1038,9 @@ impl HeadlessServer {
                 Ok(()) => {
                     if let Some(regions) = smooth_regions {
                         client.shell_smooth_regions = regions;
+                    }
+                    if let Some(anchor) = popup_anchor {
+                        client.shell_popup_anchor = anchor;
                     }
                     if let Some((graphics, inline_assets)) = prepared.queued_surface_graphics() {
                         self.native_graphics

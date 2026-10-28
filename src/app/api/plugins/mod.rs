@@ -1600,6 +1600,7 @@ platforms = ["linux", "macos"]
                 cwd: None,
                 focus: false,
                 env: std::collections::HashMap::new(),
+                at_cursor: false,
             }),
         });
         let value: serde_json::Value = serde_json::from_str(&response).unwrap();
@@ -1627,6 +1628,7 @@ platforms = ["linux", "macos"]
                 cwd: None,
                 focus: false,
                 env: std::collections::HashMap::new(),
+                at_cursor: false,
             }),
         });
 
@@ -1743,6 +1745,7 @@ command = ["cmd.exe", "/d", "/c", "slot.cmd", "default"]
                     cwd: cwd.map(|path| path.display().to_string()),
                     focus: false,
                     env: std::collections::HashMap::new(),
+                    at_cursor: false,
                 }),
             });
             let ResponseResult::PluginPaneOpened { plugin_pane } = response_result(&open) else {
@@ -1863,6 +1866,7 @@ command = ["sh", "-c", '"$HERDR_BIN_PATH" --list >/dev/null; printf "%s\n" "$?" 
                     cwd: None,
                     focus: true,
                     env: std::collections::HashMap::new(),
+                    at_cursor: false,
                 }),
             });
             assert!(matches!(
@@ -1981,6 +1985,7 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$PWD\" \
                         "/tmp/spoofed-herdr".to_string(),
                     ),
                 ]),
+                at_cursor: false,
             }),
         });
         let ResponseResult::PluginPaneOpened { plugin_pane } = response_result(&open) else {
@@ -2087,6 +2092,7 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n' \"$HERDR_PLUGIN_ROOT\" \"$HERDR_PL
                         "/tmp/spoofed-state".to_string(),
                     ),
                 ]),
+                at_cursor: false,
             }),
         });
         let ResponseResult::PluginPaneOpened { .. } = response_result(&open) else {
@@ -2177,6 +2183,7 @@ command = ["sh", "-c", "sleep 1"]
                 cwd: None,
                 focus: true,
                 env: std::collections::HashMap::new(),
+                at_cursor: false,
             }),
         });
         let ResponseResult::PluginPaneOpened { .. } = response_result(&open) else {
@@ -2260,6 +2267,7 @@ command = ["sh", "-c", "sleep 1"]
                 cwd: None,
                 focus: true,
                 env: std::collections::HashMap::new(),
+                at_cursor: false,
             }),
         });
         let ResponseResult::PluginPaneOpened { .. } = response_result(&open) else {
@@ -2339,6 +2347,7 @@ command = ["sh", "-c", "sleep 1"]
                 cwd: None,
                 focus: true,
                 env: std::collections::HashMap::new(),
+                at_cursor: false,
             }),
         });
         let ResponseResult::PluginPaneOpened { .. } = response_result(&open) else {
@@ -2424,6 +2433,7 @@ command = ["sh", "-c", "printf %s ${{HERDR_PANE_ID-unset}} > '{}'; sleep 1"]
                 cwd: None,
                 focus: true,
                 env: std::collections::HashMap::new(),
+                at_cursor: false,
             }),
         };
         app.state.mode = crate::app::Mode::Navigate;
@@ -2621,6 +2631,7 @@ command = ["sh", "-c", "printf %s ${{HERDR_PANE_ID-unset}} > '{}'; sleep 1"]
                 cwd: None,
                 focus: true,
                 env: std::collections::HashMap::new(),
+                at_cursor: false,
             }),
         });
         let value: serde_json::Value = serde_json::from_str(&pane).unwrap();
@@ -2688,6 +2699,7 @@ command = ["sh", "-c", "printf %s ${{HERDR_PANE_ID-unset}} > '{}'; sleep 1"]
                 cwd: None,
                 focus: true,
                 env: std::collections::HashMap::new(),
+                at_cursor: false,
             }),
         });
         let pane: serde_json::Value = serde_json::from_str(&pane).unwrap();

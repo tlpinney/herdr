@@ -277,6 +277,31 @@ pub(super) struct RenderedPaneSurface {
     pub(super) graphics_sources: crate::kitty_graphics::surface::SourceFiles,
     /// Smooth scroll regions of visible panes, in pane-surface cells.
     pub(super) smooth_regions: Vec<crate::smooth_scroll::SurfaceRegion>,
+    /// Where a cursor-anchored popup opens, in pane-surface cells.
+    pub(super) popup_anchor: Option<(u16, u16)>,
+}
+
+/// The cursor of the pane a cursor-anchored popup was opened from, in
+/// pane-surface cells. `None` for centered popups, or when that pane is not
+/// visible or shows no cursor; the popup is then centered.
+fn popup_cursor_anchor(
+    app: &app::App,
+    workspace_index: usize,
+    pane_infos: &[crate::layout::PaneInfo],
+    area: Rect,
+) -> Option<(u16, u16)> {
+    let anchor_pane = app.state.popup_pane.as_ref()?.anchor_pane?;
+    let pane = pane_infos.iter().find(|pane| pane.id == anchor_pane)?;
+    let runtime = app.state.runtime_for_pane_in_workspace(
+        &app.terminal_runtimes,
+        workspace_index,
+        pane.id,
+    )?;
+    let cursor = runtime.cursor_state(pane.inner_rect, true)?;
+    Some((
+        cursor.x.saturating_sub(area.x),
+        cursor.y.saturating_sub(area.y),
+    ))
 }
 
 /// Smooth scroll regions declared by visible panes, translated into
@@ -530,6 +555,12 @@ pub(super) fn render_pane_surface(
     let popup = show_popup
         .then(|| render_popup_surface(app, area, resize_panes, cell_size))
         .flatten();
+    let popup_anchor = popup
+        .as_ref()
+        .zip(target)
+        .and_then(|(_, target)| {
+            popup_cursor_anchor(app, target.workspace_index, &layout.pane_infos, area)
+        });
     let (graphics, next_graphics_delivery, graphics_sources) =
         crate::server::client_shell_graphics::collect(
             app,
@@ -583,6 +614,7 @@ pub(super) fn render_pane_surface(
         graphics_delivery: next_graphics_delivery,
         graphics_sources,
         smooth_regions,
+        popup_anchor,
     })
 }
 

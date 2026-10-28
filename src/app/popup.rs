@@ -10,6 +10,8 @@ use crate::terminal::{TerminalId, TerminalRuntime, TerminalState};
 pub(crate) struct PopupGeometry {
     pub width: Option<PopupSize>,
     pub height: Option<PopupSize>,
+    /// Open at the focused pane's cursor instead of centered.
+    pub at_cursor: bool,
 }
 
 impl App {
@@ -164,6 +166,7 @@ impl App {
             terminal_id,
             width: geometry.width,
             height: geometry.height,
+            anchor_pane: geometry.at_cursor.then_some(focused_pane),
         });
         self.state.mode = Mode::Terminal;
         Ok(())
@@ -188,6 +191,7 @@ impl App {
             terminal_id: terminal_id.clone(),
             width: None,
             height: None,
+            anchor_pane: None,
         });
         (pane_id, terminal_id)
     }
@@ -219,6 +223,7 @@ mod tests {
             terminal_id,
             width: None,
             height: None,
+            anchor_pane: None,
         });
         app
     }
