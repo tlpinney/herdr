@@ -804,13 +804,25 @@ impl HeadlessServer {
                         }
                         continue;
                     }
+                    let smooth_regions = crate::server::client_shell::terminal_smooth_regions(
+                        runtime,
+                        area.width,
+                        area.height,
+                    );
                     let frame_started = crate::render_prof::timer();
-                    let frame = FrameData::from_ratatui_buffer_with_hyperlinks(
+                    let mut frame = FrameData::from_ratatui_buffer_with_hyperlinks(
                         &buffer,
                         cursor,
                         &hyperlinks,
                     );
                     crate::render_prof::duration_since("full_render.frame_build", frame_started);
+                    // The stream is the terminal's own output, so its regions travel
+                    // inside the frame's synchronized update to whatever host shows it.
+                    if let Some(client) = self.clients.get_mut(&client_id) {
+                        client
+                            .terminal_smooth_ids
+                            .encode(&smooth_regions, &mut frame.graphics);
+                    }
                     frame
                 }
             };

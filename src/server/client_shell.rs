@@ -330,6 +330,40 @@ pub(super) fn collect_smooth_regions(
     regions
 }
 
+/// The smooth scroll regions of a terminal streamed on its own (attach or
+/// observe), in the cells of its `width` x `height` frame.
+pub(super) fn terminal_smooth_regions(
+    runtime: &crate::terminal::TerminalRuntime,
+    width: u16,
+    height: u16,
+) -> Vec<(String, u32, crate::smooth_scroll::HostRegion)> {
+    // Revision 0 means the program never declared a region.
+    if runtime.smooth_regions_revision() == 0 {
+        return Vec::new();
+    }
+    let Some(declared) = runtime.smooth_regions() else {
+        return Vec::new();
+    };
+    if runtime
+        .scroll_metrics()
+        .is_some_and(|metrics| metrics.offset_from_bottom > 0)
+    {
+        return Vec::new();
+    }
+    declared
+        .iter()
+        .filter_map(|(id, region)| {
+            let rect = crate::smooth_scroll::translate(region, 0, 0, width, height)?;
+            let host = crate::smooth_scroll::HostRegion {
+                rect,
+                pos: region.pos,
+                max: region.max,
+            };
+            Some((String::new(), id, host))
+        })
+        .collect()
+}
+
 #[derive(Debug)]
 pub(super) enum SurfaceRenderDeferred {
     Synchronized,
