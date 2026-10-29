@@ -2797,6 +2797,37 @@
           ],
           "type": "object"
         },
+        "PanePlaceParams": {
+          "properties": {
+            "focus": {
+              "default": false,
+              "type": "boolean"
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "ratio": {
+              "description": "Share of the new split given to the placed pane. Defaults to half.",
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "side": {
+              "$ref": "#/schemas/request/$defs/PaneDirection"
+            },
+            "target_pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "target_pane_id",
+            "side"
+          ],
+          "type": "object"
+        },
         "PaneProcessInfoParams": {
           "properties": {
             "pane_id": {
@@ -5473,6 +5504,22 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/PaneMoveParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "pane.place",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PanePlaceParams"
             }
           },
           "required": [
@@ -8259,6 +8306,52 @@
           ],
           "type": "object"
         },
+        "PanePlaceReason": {
+          "enum": [
+            "same_pane",
+            "not_found",
+            "cross_tab",
+            "zoomed_tab"
+          ],
+          "type": "string"
+        },
+        "PanePlaceResult": {
+          "properties": {
+            "changed": {
+              "type": "boolean"
+            },
+            "focused_pane_id": {
+              "type": "string"
+            },
+            "layout": {
+              "$ref": "#/schemas/success_response/$defs/PaneLayoutSnapshot"
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/PanePlaceReason"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "target_pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "changed",
+            "pane_id",
+            "target_pane_id",
+            "focused_pane_id",
+            "layout"
+          ],
+          "type": "object"
+        },
         "PaneProcessInfo": {
           "properties": {
             "foreground_process_group_id": {
@@ -9619,6 +9712,22 @@
               "required": [
                 "type",
                 "move_result"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "place": {
+                  "$ref": "#/schemas/success_response/$defs/PanePlaceResult"
+                },
+                "type": {
+                  "const": "pane_place",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "place"
               ],
               "type": "object"
             },

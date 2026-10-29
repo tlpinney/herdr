@@ -7,9 +7,9 @@ use crate::api::schema::{
     PaneFocusDirectionReason, PaneFocusDirectionResult, PaneInfo, PaneInputSetParams,
     PaneLayoutPane, PaneLayoutParams, PaneLayoutRect, PaneLayoutSnapshot, PaneLayoutSplit,
     PaneListParams, PaneMoveDestination, PaneMoveParams, PaneMoveReason, PaneMoveResult,
-    PaneNeighborParams, PaneNeighborResult, PaneProcessInfo, PaneProcessInfoParams,
-    PaneProcessInfoProcess, PaneReadParams, PaneReadResult, PaneReleaseAgentParams,
-    PaneRenameParams, PaneReportAgentParams, PaneReportAgentSessionParams,
+    PaneNeighborParams, PaneNeighborResult, PanePlaceParams, PanePlaceReason, PanePlaceResult,
+    PaneProcessInfo, PaneProcessInfoParams, PaneProcessInfoProcess, PaneReadParams, PaneReadResult,
+    PaneReleaseAgentParams, PaneRenameParams, PaneReportAgentParams, PaneReportAgentSessionParams,
     PaneReportMetadataParams, PaneResizeParams, PaneResizeReason, PaneResizeResult,
     PaneScrollParams, PaneSelectionReadParams, PaneSendInputParams, PaneSendKeysParams,
     PaneSendTextParams, PaneSplitParams, PaneSwapParams, PaneSwapReason, PaneSwapResult,
@@ -937,6 +937,89 @@ impl App {
                     reason,
                     source_pane_id: source_public_id,
                     target_pane_id: target_public_id,
+                    focused_pane_id,
+                    layout,
+                },
+            },
+        )
+    }
+
+    pub(super) fn handle_pane_place(&mut self, id: String, params: PanePlaceParams) -> String {
+        let locate = |app: &Self, raw: &str| {
+            app.parse_pane_id(raw).and_then(|(ws_idx, pane_id)| {
+                let tab_idx = app.state.workspaces[ws_idx].find_tab_index_for_pane(pane_id)?;
+                Some((ws_idx, tab_idx, pane_id))
+            })
+        };
+        let Some((ws_idx, tab_idx, pane_id)) = locate(self, &params.pane_id) else {
+            return encode_error(id, "pane_not_found", "pane not found");
+        };
+        let target = locate(self, &params.target_pane_id);
+        let zoomed = self.state.workspaces[ws_idx].tabs[tab_idx].zoomed;
+        let reason = match target {
+            None => Some(PanePlaceReason::NotFound),
+            Some((_, _, target_pane_id)) if target_pane_id == pane_id => {
+                Some(PanePlaceReason::SamePane)
+            }
+            Some((target_ws, target_tab, _)) if (target_ws, target_tab) != (ws_idx, tab_idx) => {
+                Some(PanePlaceReason::CrossTab)
+            }
+            Some(_) if zoomed => Some(PanePlaceReason::ZoomedTab),
+            Some(_) => None,
+        };
+
+        let mut changed = false;
+        if let (None, Some((_, _, target_pane_id))) = (&reason, target) {
+            let previous_focus = self.state.current_pane_focus_target();
+            if let Some(tab) = self
+                .state
+                .workspaces
+                .get_mut(ws_idx)
+                .and_then(|ws| ws.tabs.get_mut(tab_idx))
+            {
+                changed = tab.layout.place_pane(
+                    pane_id,
+                    target_pane_id,
+                    params.side.into(),
+                    params.ratio.unwrap_or(0.5),
+                    params.focus,
+                );
+            }
+            if changed {
+                if params.focus {
+                    self.state.switch_workspace_tab(ws_idx, tab_idx);
+                    self.state
+                        .record_pane_focus_change(previous_focus, ws_idx, pane_id);
+                }
+                self.state.mark_session_dirty();
+                self.schedule_session_save();
+            }
+        }
+
+        let public_pane_id = self
+            .public_pane_id(ws_idx, pane_id)
+            .unwrap_or_else(|| params.pane_id.clone());
+        let public_target_pane_id = target
+            .and_then(|(target_ws, _, target_pane_id)| {
+                self.public_pane_id(target_ws, target_pane_id)
+            })
+            .unwrap_or_else(|| params.target_pane_id.clone());
+        let Some(layout) = self.pane_layout_snapshot(ws_idx, tab_idx) else {
+            return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
+        };
+        let focused_pane_id = layout.focused_pane_id.clone();
+        if changed {
+            self.emit_layout_updated_snapshot(layout.clone());
+        }
+
+        encode_success(
+            id,
+            ResponseResult::PanePlace {
+                place: PanePlaceResult {
+                    changed,
+                    reason,
+                    pane_id: public_pane_id,
+                    target_pane_id: public_target_pane_id,
                     focused_pane_id,
                     layout,
                 },
@@ -3217,6 +3300,101 @@ mod tests {
         assert_eq!(swap.layout.focused_pane_id, swap.source_pane_id);
         assert_eq!(swap.layout.panes.len(), 2);
         assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(source));
+    }
+
+    fn place_pane_for_test(
+        app: &mut App,
+        pane_id: &str,
+        target_pane_id: &str,
+        side: PaneDirection,
+    ) -> PanePlaceResult {
+        let response = app.handle_pane_place(
+            "req".into(),
+            PanePlaceParams {
+                pane_id: pane_id.into(),
+                target_pane_id: target_pane_id.into(),
+                side,
+                ratio: None,
+                focus: true,
+            },
+        );
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::PanePlace { place } = success.result else {
+            panic!("expected pane place response");
+        };
+        place
+    }
+
+    #[test]
+    fn api_pane_place_moves_pane_beside_target_and_focuses_it() {
+        let mut app = app_with_linked_worktree();
+        let left = app.state.workspaces[0].tabs[0].root_pane;
+        let right = app.state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
+        let bottom = app.state.workspaces[0].test_split(ratatui::layout::Direction::Vertical);
+        app.state.workspaces[0].tabs[0].layout.focus_pane(left);
+        crate::ui::compute_view_with_runtime_registry(
+            &mut app.state,
+            &crate::terminal::TerminalRuntimeRegistry::new(),
+            ratatui::layout::Rect::new(0, 0, 100, 20),
+        );
+        let left_public = app.public_pane_id(0, left).unwrap();
+        let bottom_public = app.public_pane_id(0, bottom).unwrap();
+
+        let place = place_pane_for_test(&mut app, &bottom_public, &left_public, PaneDirection::Up);
+
+        assert!(place.changed);
+        assert_eq!(place.reason, None);
+        assert_eq!(place.pane_id, bottom_public);
+        assert_eq!(place.target_pane_id, left_public);
+        assert_eq!(place.focused_pane_id, bottom_public);
+        assert_eq!(place.layout.panes.len(), 3);
+        let rect = |id: &str| {
+            place
+                .layout
+                .panes
+                .iter()
+                .find(|pane| pane.pane_id == id)
+                .map(|pane| pane.rect)
+                .unwrap()
+        };
+        let moved = rect(&bottom_public);
+        let target = rect(&left_public);
+        assert_eq!(moved.x, target.x);
+        assert!(moved.y < target.y);
+        assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(bottom));
+        let right_public = app.public_pane_id(0, right).unwrap();
+        assert_eq!(rect(&right_public).y, moved.y);
+    }
+
+    #[test]
+    fn api_pane_place_rejects_same_pane_zoomed_tab_and_missing_target() {
+        let mut app = app_with_linked_worktree();
+        let left = app.state.workspaces[0].tabs[0].root_pane;
+        let right = app.state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
+        let left_public = app.public_pane_id(0, left).unwrap();
+        let right_public = app.public_pane_id(0, right).unwrap();
+
+        let same = place_pane_for_test(&mut app, &left_public, &left_public, PaneDirection::Left);
+        assert!(!same.changed);
+        assert_eq!(same.reason, Some(PanePlaceReason::SamePane));
+
+        let missing = place_pane_for_test(&mut app, &left_public, "w1:p999", PaneDirection::Left);
+        assert!(!missing.changed);
+        assert_eq!(missing.reason, Some(PanePlaceReason::NotFound));
+        assert_eq!(missing.target_pane_id, "w1:p999");
+
+        app.state.workspaces[0].tabs[0].zoomed = true;
+        let zoomed =
+            place_pane_for_test(&mut app, &left_public, &right_public, PaneDirection::Right);
+        assert!(!zoomed.changed);
+        assert_eq!(zoomed.reason, Some(PanePlaceReason::ZoomedTab));
+        let left_x = zoomed
+            .layout
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == left_public)
+            .map(|pane| pane.rect.x);
+        assert_eq!(left_x, Some(0));
     }
 
     #[test]

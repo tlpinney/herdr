@@ -73,6 +73,18 @@ pub struct PaneSwapParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PanePlaceParams {
+    pub pane_id: String,
+    pub target_pane_id: String,
+    pub side: PaneDirection,
+    /// Share of the new split given to the placed pane. Defaults to half.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ratio: Option<f32>,
+    #[serde(default)]
+    pub focus: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneMoveParams {
     pub pane_id: String,
     pub destination: PaneMoveDestination,
@@ -536,6 +548,26 @@ pub enum PaneSwapReason {
     SamePane,
     NotFound,
     CrossTab,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PanePlaceResult {
+    pub changed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<PanePlaceReason>,
+    pub pane_id: String,
+    pub target_pane_id: String,
+    pub focused_pane_id: String,
+    pub layout: PaneLayoutSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PanePlaceReason {
+    SamePane,
+    NotFound,
+    CrossTab,
+    ZoomedTab,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]

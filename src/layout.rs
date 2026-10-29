@@ -290,6 +290,60 @@ impl TileLayout {
         true
     }
 
+    /// Move an existing pane next to `target` on `side`, keeping its id and
+    /// collapsing the split it leaves. `ratio` is the moved pane's share of the
+    /// new split. Returns true only when both panes exist and are different.
+    pub fn place_pane(
+        &mut self,
+        moved: PaneId,
+        target: PaneId,
+        side: NavDirection,
+        ratio: f32,
+        focus: bool,
+    ) -> bool {
+        if moved == target {
+            return false;
+        }
+        let ids = self.pane_ids();
+        if !ids.contains(&moved) || !ids.contains(&target) {
+            return false;
+        }
+        let placeholder = PaneId::from_raw(0);
+        let old = std::mem::replace(&mut self.root, Node::Pane(placeholder));
+        // Removing `moved` never removes `target`, so neither fallback below is
+        // reachable; both still keep every pane in the tree.
+        let Some(mut root) = remove_pane(old, moved) else {
+            self.root = Node::Pane(moved);
+            return false;
+        };
+        let Some(node) = find_pane_mut(&mut root, target) else {
+            self.root = split_node_with(root, Direction::Horizontal, moved, 0.5);
+            return false;
+        };
+        let share = valid_split_ratio(ratio);
+        let (direction, moved_first) = match side {
+            NavDirection::Left => (Direction::Horizontal, true),
+            NavDirection::Right => (Direction::Horizontal, false),
+            NavDirection::Up => (Direction::Vertical, true),
+            NavDirection::Down => (Direction::Vertical, false),
+        };
+        *node = if moved_first {
+            Node::Split {
+                direction,
+                ratio: share,
+                first: Box::new(Node::Pane(moved)),
+                second: Box::new(Node::Pane(target)),
+            }
+        } else {
+            split_node(target, direction, moved, 1.0 - share)
+        };
+        self.root = root;
+        if focus {
+            self.set_focus(moved);
+        }
+        true
+    }
+
     /// Set the ratio of a split node at the given path.
     pub fn set_ratio_at(&mut self, path: &[bool], ratio: f32) -> bool {
         set_ratio_at(&mut self.root, path, ratio.clamp(0.1, 0.9))
@@ -621,6 +675,15 @@ fn split_node(target: PaneId, direction: Direction, new_id: PaneId, split_ratio:
         direction,
         ratio: split_ratio,
         first: Box::new(Node::Pane(target)),
+        second: Box::new(Node::Pane(new_id)),
+    }
+}
+
+fn split_node_with(first: Node, direction: Direction, new_id: PaneId, split_ratio: f32) -> Node {
+    Node::Split {
+        direction,
+        ratio: split_ratio,
+        first: Box::new(first),
         second: Box::new(Node::Pane(new_id)),
     }
 }
@@ -1301,6 +1364,97 @@ mod tests {
             .expect("target exists");
 
         assert!(layout.pane_ids().contains(&new_id));
+        assert_eq!(layout.focused(), pane(4));
+        assert!(layout.close_focused());
+        assert_eq!(layout.focused(), pane(2));
+    }
+
+    #[test]
+    fn place_pane_moves_beside_target_and_collapses_old_split() {
+        let mut layout = sample_layout();
+
+        assert!(layout.place_pane(pane(4), pane(1), NavDirection::Left, 0.5, true));
+
+        let rects = pane_rects(&layout);
+        assert_eq!(rects.len(), 4);
+        let one = pane_rect(&layout, pane(1));
+        let four = pane_rect(&layout, pane(4));
+        assert_eq!(four.y, one.y);
+        assert_eq!(four.height, one.height);
+        assert!(four.x < one.x);
+        // Pane 3 takes the whole bottom row 4 left behind.
+        assert_eq!(
+            pane_rect(&layout, pane(3)).width,
+            pane_rect(&layout, pane(2)).width
+        );
+        assert_eq!(layout.focused(), pane(4));
+    }
+
+    #[test]
+    fn place_pane_side_picks_split_axis_and_order() {
+        for (side, check) in [
+            (
+                NavDirection::Left,
+                (|m: Rect, t: Rect| m.right() <= t.x) as fn(Rect, Rect) -> bool,
+            ),
+            (NavDirection::Right, |m, t| t.right() <= m.x),
+            (NavDirection::Up, |m, t| m.bottom() <= t.y),
+            (NavDirection::Down, |m, t| t.bottom() <= m.y),
+        ] {
+            let mut layout = sample_layout();
+            assert!(layout.place_pane(pane(1), pane(2), side, 0.5, false));
+            let moved = pane_rect(&layout, pane(1));
+            let target = pane_rect(&layout, pane(2));
+            assert!(check(moved, target), "{side:?}: {moved:?} vs {target:?}");
+        }
+    }
+
+    #[test]
+    fn place_pane_ratio_is_the_moved_pane_share() {
+        for side in [NavDirection::Left, NavDirection::Right] {
+            let (mut layout, root) = TileLayout::new();
+            let other = layout.split_focused(Direction::Vertical);
+            assert!(layout.place_pane(other, root, side, 0.25, false));
+            let moved = pane_rect(&layout, other);
+            assert_eq!(moved.width, 25, "{side:?}");
+        }
+    }
+
+    #[test]
+    fn place_pane_sibling_reorders_within_collapsed_parent() {
+        let (mut layout, root) = TileLayout::new();
+        let second = layout.split_focused(Direction::Horizontal);
+
+        assert!(layout.place_pane(root, second, NavDirection::Right, 0.5, false));
+
+        assert!(pane_rect(&layout, second).right() <= pane_rect(&layout, root).x);
+        assert_eq!(layout.focused(), second);
+    }
+
+    #[test]
+    fn place_pane_rejects_same_or_missing_panes_without_changes() {
+        let mut layout = sample_layout();
+        layout.focus_pane(pane(4));
+        let before = pane_rects(&layout);
+        let splits = split_snapshot(&layout);
+
+        for (moved, target) in [(pane(2), pane(2)), (pane(99), pane(2)), (pane(2), pane(99))] {
+            assert!(!layout.place_pane(moved, target, NavDirection::Left, 0.5, true));
+        }
+
+        assert_eq!(pane_rects(&layout), before);
+        assert_eq!(split_snapshot(&layout), splits);
+        assert_eq!(layout.focused(), pane(4));
+    }
+
+    #[test]
+    fn place_pane_without_focus_keeps_close_focus_history() {
+        let mut layout = sample_layout();
+        layout.focus_pane(pane(2));
+        layout.focus_pane(pane(4));
+
+        assert!(layout.place_pane(pane(3), pane(1), NavDirection::Down, 0.5, false));
+
         assert_eq!(layout.focused(), pane(4));
         assert!(layout.close_focused());
         assert_eq!(layout.focused(), pane(2));
