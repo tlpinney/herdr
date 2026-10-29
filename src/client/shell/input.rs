@@ -385,6 +385,10 @@ impl ClientShellState {
             self.copy_input_queue.push_back(key);
             return;
         }
+        if self.pane_move_active() && key.code == KeyCode::Esc && key.kind == KeyEventKind::Press {
+            self.cancel_pane_move(outcome);
+            return;
+        }
         let key = if self.host_reports_key_releases && key.generated_text.is_some() {
             key.with_physical_identity_hint(true)
         } else {
@@ -466,6 +470,12 @@ impl ClientShellState {
                 outcome,
             );
         }
+        self.release_pane_mouse_gesture(outcome);
+        self.copy_input_queue.clear();
+    }
+
+    /// End a pane-owned mouse gesture by sending the app its button release.
+    pub(super) fn release_pane_mouse_gesture(&mut self, outcome: &mut ClientShellInput) {
         if let Some(gesture) = self.pane_mouse_gesture.take() {
             let modifiers = gesture
                 .last_event
@@ -500,7 +510,6 @@ impl ClientShellState {
                 outcome,
             );
         }
-        self.copy_input_queue.clear();
     }
 
     fn execute_repeat_plan(

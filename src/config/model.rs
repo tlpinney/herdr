@@ -6,7 +6,7 @@ use serde::{de, Deserialize, Deserializer, Serialize};
 use super::{
     ActionKeybinds, BindingConfig, CommandKeybindConfig, IndexedKeybind, Keybinds, SidebarConfig,
     SoundConfig, TabBarRightEntryConfig, ThemeConfig, DEFAULT_MOBILE_WIDTH_THRESHOLD,
-    DEFAULT_MOUSE_SCROLL_LINES, DEFAULT_SCROLLBACK_LIMIT_BYTES,
+    DEFAULT_MOUSE_SCROLL_LINES, DEFAULT_PANE_MOVE_LONG_PRESS_MS, DEFAULT_SCROLLBACK_LIMIT_BYTES,
 };
 
 pub const MAX_TOAST_DELAY_SECONDS: u64 = 3600;
@@ -960,6 +960,8 @@ pub struct UiConfig {
     pub redraw_on_focus_gained: bool,
     /// Lines to scroll per mouse wheel notch. Default: 3.
     pub mouse_scroll_lines: Option<NonZeroUsize>,
+    /// Hold a pane still for this long to pick it up and move it. 0 disables. Default: 400.
+    pub pane_move_long_press_ms: u64,
     /// Ask for confirmation before closing a workspace. Default: true.
     pub confirm_close: bool,
     /// Ask for a tab name before creating a new tab. Default: true.
@@ -1210,6 +1212,7 @@ impl Default for UiConfig {
             right_click_passthrough_modifier: RightClickPassthroughModifierConfig::default(),
             redraw_on_focus_gained: true,
             mouse_scroll_lines: None,
+            pane_move_long_press_ms: DEFAULT_PANE_MOVE_LONG_PRESS_MS,
             confirm_close: true,
             prompt_new_tab_name: true,
             prompt_new_workspace_name: false,
@@ -1239,6 +1242,11 @@ impl UiConfig {
         self.mouse_scroll_lines
             .map(NonZeroUsize::get)
             .unwrap_or(DEFAULT_MOUSE_SCROLL_LINES)
+    }
+
+    pub fn pane_move_long_press(&self) -> Option<std::time::Duration> {
+        (self.pane_move_long_press_ms > 0)
+            .then(|| std::time::Duration::from_millis(self.pane_move_long_press_ms))
     }
 
     pub fn right_click_passthrough_modifiers(&self) -> Option<KeyModifiers> {
@@ -1859,6 +1867,23 @@ mouse_scroll_lines = 1
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.ui.mouse_scroll_lines(), 1);
+    }
+
+    #[test]
+    fn pane_move_long_press_defaults_on_and_zero_disables() {
+        assert_eq!(
+            Config::default().ui.pane_move_long_press(),
+            Some(std::time::Duration::from_millis(
+                DEFAULT_PANE_MOVE_LONG_PRESS_MS
+            ))
+        );
+        let config: Config = toml::from_str("[ui]\npane_move_long_press_ms = 0\n").unwrap();
+        assert_eq!(config.ui.pane_move_long_press(), None);
+        let config: Config = toml::from_str("[ui]\npane_move_long_press_ms = 250\n").unwrap();
+        assert_eq!(
+            config.ui.pane_move_long_press(),
+            Some(std::time::Duration::from_millis(250))
+        );
     }
 
     #[test]

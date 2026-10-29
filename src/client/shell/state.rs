@@ -43,6 +43,7 @@ pub(crate) struct ClientShellConfig {
     pub(super) confirm_close: bool,
     pub(super) mouse_capture: bool,
     pub(super) mouse_scroll_lines: usize,
+    pub(super) pane_move_long_press: Option<std::time::Duration>,
     pub(super) right_click_passthrough_modifiers: Option<crossterm::event::KeyModifiers>,
     pub(super) redraw_on_focus_gained: bool,
     pub(super) switch_ascii_input_source_in_prefix: bool,
@@ -914,6 +915,10 @@ pub(crate) struct ClientShellState {
     pub(super) overlay: Option<ClientShellOverlay>,
     pub(super) previous_pane_id: Option<String>,
     pub(super) pane_mouse_gesture: Option<ClientPaneMouseGesture>,
+    pub(super) pane_long_press: Option<super::pane_move::ClientPaneLongPress>,
+    pub(super) pane_move: Option<super::pane_move::ClientPaneMove>,
+    /// Swallow the release of the click that dropped or cancelled a pane move.
+    pub(super) pane_move_consume_up: bool,
     pub(super) link_hover: Option<super::link_hover::LinkHover>,
     pub(super) url_click_consumes_until_up: bool,
     /// The host terminal reports key releases (Kitty event types), so text
@@ -1092,6 +1097,9 @@ impl ClientShellState {
             overlay,
             previous_pane_id: None,
             pane_mouse_gesture: None,
+            pane_long_press: None,
+            pane_move: None,
+            pane_move_consume_up: false,
             link_hover: None,
             url_click_consumes_until_up: false,
             host_reports_key_releases: false,
@@ -1288,6 +1296,9 @@ impl ClientShellState {
             .then_some(ClientShellOverlay::Onboarding);
         self.previous_pane_id = None;
         self.pane_mouse_gesture = None;
+        self.pane_long_press = None;
+        self.pane_move = None;
+        self.pane_move_consume_up = false;
         self.link_hover = None;
         self.url_click_consumes_until_up = false;
         self.replaying_url_click = false;
@@ -1912,6 +1923,7 @@ impl ClientShellState {
         self.selection_autoscroll_deadline
             .into_iter()
             .chain(self.selection_repaint_deadline)
+            .chain(self.pane_long_press_deadline())
             .min()
             .map(|deadline| deadline.saturating_duration_since(now).min(default))
             .unwrap_or(default)

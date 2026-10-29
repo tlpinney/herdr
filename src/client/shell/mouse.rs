@@ -869,6 +869,9 @@ impl ClientShellState {
                 return;
             }
         }
+        if self.handle_pane_move_mouse(mouse, outcome) {
+            return;
+        }
         if let Some(gesture) = self.pane_mouse_gesture.as_ref() {
             let gesture_event = matches!(
                 mouse.kind,
@@ -2269,6 +2272,9 @@ impl ClientShellState {
                                 hit.scroll,
                             ));
                         }
+                    }
+                    if super::contains(hit.inner_rect, point) {
+                        self.begin_pane_long_press(&hit, mouse);
                     }
                     self.push_endpoint_method(
                         crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget {

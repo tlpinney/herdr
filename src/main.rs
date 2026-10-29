@@ -282,6 +282,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Pane scrollback lines to scroll per mouse wheel notch.
 # mouse_scroll_lines = 3
 
+# Hold the mouse still on a pane this long (ms) to pick it up, then click another
+# pane to place it: an edge splits beside that pane, the center swaps. 0 disables.
+# pane_move_long_press_ms = 400
+
 # Ask for confirmation before closing a workspace
 # confirm_close = true
 
