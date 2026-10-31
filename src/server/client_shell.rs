@@ -396,6 +396,7 @@ pub(super) fn collect_smooth_regions(
                     rect,
                     pos,
                     max,
+                    shift: None,
                 });
                 continue;
             }
@@ -427,6 +428,7 @@ pub(super) fn collect_smooth_regions(
                     rect,
                     pos: region.pos,
                     max: region.max,
+                    shift: region.shift,
                 });
             }
         }
@@ -444,7 +446,12 @@ pub(super) fn terminal_smooth_regions(
     // A pane scrolled back into herdr's scrollback shows history, so its own
     // scrollback region replaces anything the program declared.
     if let Some((rect, pos, max)) = scrollback_region(runtime, Rect::new(0, 0, width, height)) {
-        let host = crate::smooth_scroll::HostRegion { rect, pos, max };
+        let host = crate::smooth_scroll::HostRegion {
+            rect,
+            pos,
+            max,
+            shift: None,
+        };
         return vec![(String::new(), crate::smooth_scroll::SCROLLBACK_REGION_ID, host)];
     }
     // Revision 0 means the program never declared a region.
@@ -468,6 +475,7 @@ pub(super) fn terminal_smooth_regions(
                 rect,
                 pos: region.pos,
                 max: region.max,
+                shift: region.shift,
             };
             Some((String::new(), id, host))
         })

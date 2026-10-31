@@ -131,6 +131,7 @@ impl ClientShellState {
                                 rect,
                                 pos: region.pos,
                                 max: region.max,
+                                shift: region.shift,
                             },
                         )
                     })

@@ -3,7 +3,9 @@
 //! A program in a pane declares a rectangle it scrolls one row per wheel
 //! event with `ESC _ smooth;id;top;bottom;left;right;pos;max ESC \` (or the
 //! legacy full-width `smooth;top;bottom;pos;max`, id 0), and clears it with
-//! `smooth;off[;id]`. A host terminal that supports the protocol shifts the
+//! `smooth;off[;id]`. A declaration may end with `;ox;oy`, a sub-cell shift
+//! the program sets itself (thousandths of a cell, left and up), which makes
+//! `right` an overscan column too. A host terminal that supports the protocol shifts the
 //! rectangle by the sub-row remainder of precision scrolling. Herdr keeps the
 //! latest declarations per pane, translates them into host-screen cells, and
 //! re-declares them alongside each composed frame.
@@ -28,6 +30,8 @@ pub struct PaneRegion {
     pub right: u16,
     pub pos: u32,
     pub max: u32,
+    /// Program-set sub-cell shift (x, y) in thousandths of a cell.
+    pub shift: Option<(u16, u16)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,9 +59,25 @@ pub fn parse(payload: &[u8]) -> Option<Command> {
     let values = fields
         .map(|field| field.parse::<u32>().ok())
         .collect::<Option<Vec<_>>>()?;
-    let (id, top, bottom, left, right, pos, max) = match values[..] {
-        [top, bottom, pos, max] => (0, top, bottom, 0, u32::from(u16::MAX), pos, max),
-        [id, top, bottom, left, right, pos, max] => (id, top, bottom, left, right, pos, max),
+    let (id, top, bottom, left, right, pos, max, shift) = match values[..] {
+        [top, bottom, pos, max] => (0, top, bottom, 0, u32::from(u16::MAX), pos, max, None),
+        [id, top, bottom, left, right, pos, max] => (id, top, bottom, left, right, pos, max, None),
+        [id, top, bottom, left, right, pos, max, ox, oy] => {
+            // A shifted region needs a visible column besides its overscan one.
+            if ox > 999 || oy > 999 || left >= right {
+                return None;
+            }
+            (
+                id,
+                top,
+                bottom,
+                left,
+                right,
+                pos,
+                max,
+                Some((ox as u16, oy as u16)),
+            )
+        }
         _ => return None,
     };
     let narrow = |value: u32| u16::try_from(value).ok();
@@ -68,6 +88,7 @@ pub fn parse(payload: &[u8]) -> Option<Command> {
         right: narrow(right)?,
         pos,
         max,
+        shift,
     };
     (region.top < region.bottom && region.left <= region.right)
         .then_some(Command::Set { id, region })
@@ -144,6 +165,8 @@ pub struct SurfaceRegion {
     pub rect: CellRect,
     pub pos: u32,
     pub max: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shift: Option<(u16, u16)>,
 }
 
 /// Translate a pane region into the coordinate space whose origin is
@@ -162,6 +185,10 @@ pub fn translate(
     }
     // Clipping the bottom would hide the overscan row and misalign content.
     if region.bottom >= height {
+        return None;
+    }
+    // Likewise the overscan column of a shifted region.
+    if region.shift.is_some() && region.right != u16::MAX && region.right >= width {
         return None;
     }
     let right = region.right.min(width - 1);
@@ -192,6 +219,7 @@ pub struct HostRegion {
     pub rect: CellRect,
     pub pos: u32,
     pub max: u32,
+    pub shift: Option<(u16, u16)>,
 }
 
 /// Assigns stable host ids to regions keyed by (pane, app id) and encodes
@@ -233,9 +261,13 @@ impl HostRegionIds {
             let r = region.rect;
             let _ = write!(
                 out,
-                "\x1b_smooth;{slot};{};{};{};{};{};{}\x1b\\",
+                "\x1b_smooth;{slot};{};{};{};{};{};{}",
                 r.top, r.bottom, r.left, r.right, region.pos, region.max
             );
+            if let Some((ox, oy)) = region.shift {
+                let _ = write!(out, ";{ox};{oy}");
+            }
+            out.extend_from_slice(b"\x1b\\");
         }
     }
 
@@ -256,7 +288,41 @@ mod tests {
             right,
             pos,
             max,
+            shift: None,
         }
+    }
+
+    #[test]
+    fn parse_translate_and_encode_a_program_shift() {
+        let Some(Command::Set { id, region: r }) = parse(b"4;0;30;0;99;10;500;250;750") else {
+            panic!("shift declaration should parse");
+        };
+        assert_eq!((id, r.right, r.shift), (4, 99, Some((250, 750))));
+        for bad in [
+            &b"4;0;30;0;99;10;500;1000;0"[..],
+            b"4;0;30;5;5;10;500;0;0",
+            b"4;0;30;0;99;10;500;1",
+        ] {
+            assert_eq!(parse(bad), None, "{}", String::from_utf8_lossy(bad));
+        }
+        // A pane narrower than the region would clip the overscan column.
+        assert!(translate(r, 0, 0, 100, 40).is_some());
+        assert_eq!(translate(r, 0, 0, 80, 40), None);
+
+        let rect = translate(r, 2, 1, 100, 40).unwrap();
+        let mut ids = HostRegionIds::default();
+        let mut out = Vec::new();
+        let host = HostRegion {
+            rect,
+            pos: r.pos,
+            max: r.max,
+            shift: r.shift,
+        };
+        ids.encode(&[("w1:p1".into(), 4, host)], &mut out);
+        assert_eq!(
+            out,
+            b"\x1b_smooth;0;1;31;2;101;10;500;250;750\x1b\\".to_vec()
+        );
     }
 
     #[test]
@@ -338,7 +404,12 @@ mod tests {
             left: 0,
             right: 9,
         };
-        let host = |pos| HostRegion { rect, pos, max: 20 };
+        let host = |pos| HostRegion {
+            rect,
+            pos,
+            max: 20,
+            shift: None,
+        };
         let mut ids = HostRegionIds::default();
         let mut out = Vec::new();
 
@@ -380,6 +451,7 @@ mod tests {
                         rect,
                         pos: 0,
                         max: 1,
+                        shift: None,
                     },
                 )
             })

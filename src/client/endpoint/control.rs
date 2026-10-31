@@ -101,6 +101,7 @@ mod tests {
                 },
                 pos: 3,
                 max: 120,
+                shift: None,
             }],
         };
         let data = serde_json::to_string(&regions).unwrap();

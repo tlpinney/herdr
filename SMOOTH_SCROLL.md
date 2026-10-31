@@ -36,6 +36,9 @@ the disclosure lives here instead.
    pane surface origin, drops any under an overlay, assigns stable host ids
    (up to 8), and writes the declarations inside the frame's synchronized
    update. Regions that go away are cleared with `smooth;off;id`.
+   A program-set shift (`…;pos;max;ox;oy`, protocol 3, used for content the
+   program drags itself) rides along unchanged, since it is in fractions of
+   a cell; regions whose overscan column the pane would clip are dropped.
 4. **Input** needs no change: with mouse reporting on, herdr already
    forwards each host wheel event to the program as exactly one wheel
    event.
