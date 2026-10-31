@@ -8,7 +8,7 @@ submitted upstream.
 
 The host side is an experimental Ghostty fork:
 [tlpinney/ghostty](https://github.com/tlpinney/ghostty) (branch
-`smooth-scroll`, see its `SMOOTH_SCROLL.md` for the protocol). Terminals
+`smooth`, see its `SMOOTH.md` for the protocol). Terminals
 that don't know the sequence ignore it, so this fork behaves like herdr
 everywhere else.
 
